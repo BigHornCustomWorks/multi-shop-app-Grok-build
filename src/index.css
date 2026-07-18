@@ -1,0 +1,204 @@
+@import "tailwindcss";
+
+/* Class-based dark mode for Tailwind v4 */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --app-bg: #f1f5f9;
+  --app-surface: #ffffff;
+  --app-surface-2: #f8fafc;
+  --app-border: #e2e8f0;
+  --app-text: #0f172a;
+  --app-muted: #64748b;
+  --app-shadow: 0 1px 2px rgb(15 23 42 / 0.05), 0 8px 24px rgb(15 23 42 / 0.06);
+  --app-shadow-lg: 0 4px 6px rgb(15 23 42 / 0.04), 0 16px 40px rgb(15 23 42 / 0.1);
+  color-scheme: light;
+}
+
+html.dark {
+  --app-bg: #0b1220;
+  --app-surface: #111827;
+  --app-surface-2: #1e293b;
+  --app-border: #334155;
+  --app-text: #f1f5f9;
+  --app-muted: #94a3b8;
+  --app-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 8px 24px rgb(0 0 0 / 0.35);
+  --app-shadow-lg: 0 8px 32px rgb(0 0 0 / 0.45);
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  background: var(--app-bg);
+  color: var(--app-text);
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  font: inherit;
+  /* Don't force color: inherit — it makes text invisible on solid colored buttons */
+}
+
+/* Shared surfaces */
+.app-shell {
+  background: var(--app-bg);
+  color: var(--app-text);
+  min-height: 100vh;
+  width: 100%;
+}
+
+/**
+ * Responsive content frame:
+ * - Phone: full width (mobile app feel)
+ * - Tablet+: comfortable padded width
+ * - Desktop: wide professional layout (not a skinny phone column)
+ */
+.app-frame {
+  width: 100%;
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  min-height: 100vh;
+}
+
+@media (min-width: 768px) {
+  .app-frame {
+    max-width: 48rem; /* ~md phone-plus card still ok on tablet portrait */
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-frame {
+    max-width: 72rem; /* lg: roomy desktop */
+    min-height: 100vh;
+  }
+
+  .app-frame--wide {
+    max-width: 80rem; /* xl shop floor */
+  }
+}
+
+@media (min-width: 1280px) {
+  .app-frame--wide {
+    max-width: 90rem;
+  }
+}
+
+/* Desktop job cards grid helper (use with Tailwind grid) */
+.app-page-pad {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+@media (min-width: 1024px) {
+  .app-page-pad {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+.app-card {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 1rem;
+  box-shadow: var(--app-shadow);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.app-card-press:active {
+  transform: scale(0.99);
+}
+
+.app-header {
+  background: color-mix(in srgb, var(--app-surface) 92%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--app-border);
+}
+
+.field {
+  width: 100%;
+  padding: 0.75rem 0.875rem;
+  background: var(--app-surface-2);
+  border: 1px solid var(--app-border);
+  border-radius: 0.75rem;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.field:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 0.25);
+}
+
+.lbl {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--app-muted);
+  margin-bottom: 0.35rem;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--app-muted);
+}
+
+.section-title::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.5;
+}
+
+.pill-select {
+  /* color classes applied per-instance; base keeps height touch-friendly */
+  min-height: 2.25rem;
+}
+
+/* Native option menus stay system-colored */
+.pill-select option {
+  background: #fff;
+  color: #0f172a;
+}
+
+html.dark .pill-select option {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+
+/* Smooth theme transition on shell only (avoid lag on every element) */
+body,
+.app-shell,
+.app-card,
+.app-header {
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}

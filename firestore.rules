@@ -1,0 +1,122 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function accountActive() {
+      return !exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        || !('active' in userDoc())
+        || userDoc().active == true;
+    }
+
+    function isPlatformAdmin() {
+      return signedIn()
+        && accountActive()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && userDoc().role == 'platform_admin';
+    }
+
+    function isShopAdmin() {
+      return signedIn()
+        && accountActive()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && userDoc().role == 'shop_admin'
+        && userDoc().companyId is string;
+    }
+
+    function sameCompany(companyId) {
+      return signedIn()
+        && accountActive()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && userDoc().companyId == companyId;
+    }
+
+    function isShopAdminOf(companyId) {
+      return isShopAdmin() && userDoc().companyId == companyId;
+    }
+
+    // Own safe fields only (filter preference, display name, etc.)
+    function selfSafeUserUpdate() {
+      return request.auth.uid == userId
+        && accountActive()
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.companyId == resource.data.companyId
+        && request.resource.data.get('active', true) == resource.data.get('active', true);
+    }
+
+    // First-time join via invite code
+    function joiningShop() {
+      return request.auth.uid == userId
+        && accountActive()
+        && resource.data.companyId == null
+        && request.resource.data.companyId is string
+        && request.resource.data.role in ['tech', 'shop_admin']
+        && request.resource.data.get('active', true) == true;
+    }
+
+    // Shop admin managing a staff member in their company (not platform admin)
+    function shopAdminManagingUser() {
+      return isShopAdmin()
+        && resource.data.companyId == userDoc().companyId
+        && resource.data.role != 'platform_admin'
+        && request.resource.data.role != 'platform_admin'
+        && (
+          // Deactivate / reactivate
+          request.resource.data.companyId == resource.data.companyId
+          // Or remove from shop
+          || request.resource.data.companyId == null
+        )
+        // Shop admin may only set tech or shop_admin (or null when removed)
+        && (
+          request.resource.data.role == null
+          || request.resource.data.role in ['tech', 'shop_admin']
+        );
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && accountActive() && (
+        request.auth.uid == userId
+        || isPlatformAdmin()
+        || (
+          isShopAdmin()
+          && resource.data.companyId == userDoc().companyId
+        )
+      );
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && (
+        isPlatformAdmin()
+        || selfSafeUserUpdate()
+        || joiningShop()
+        || shopAdminManagingUser()
+      );
+    }
+
+    match /companies/{companyId} {
+      allow read: if signedIn() && accountActive() && (
+        isPlatformAdmin()
+        || sameCompany(companyId)
+        || resource.data.inviteCode is string
+      );
+      allow list: if signedIn() && accountActive();
+
+      // Platform: full control. Shop admin: settings only (e.g. tech name list)
+      allow create, delete: if isPlatformAdmin();
+      allow update: if isPlatformAdmin()
+        || (
+          isShopAdminOf(companyId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['settings', 'updatedAt'])
+        );
+
+      match /jobs/{jobId} {
+        allow read, write: if isPlatformAdmin() || sameCompany(companyId);
+      }
+    }
+  }
+}
