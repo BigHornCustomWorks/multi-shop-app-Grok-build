@@ -1,54 +1,56 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
     function signedIn() {
       return request.auth != null;
+    }
+
+    function userExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
     function userDoc() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    // Missing active field = allowed; only explicit false is blocked
     function accountActive() {
-      return !exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        || !('active' in userDoc())
-        || userDoc().active == true;
+      return signedIn()
+        && (
+          !userExists()
+          || !('active' in userDoc())
+          || userDoc().active != false
+        );
     }
 
     function isPlatformAdmin() {
-      return signedIn()
-        && accountActive()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+      return accountActive()
+        && userExists()
         && userDoc().role == 'platform_admin';
     }
 
     function isShopAdmin() {
-      return signedIn()
-        && accountActive()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+      return accountActive()
+        && userExists()
         && userDoc().role == 'shop_admin'
-        && userDoc().companyId is string;
+        && userDoc().companyId is string
+        && userDoc().companyId.size() > 0;
     }
 
     function sameCompany(companyId) {
-      return signedIn()
-        && accountActive()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+      return accountActive()
+        && userExists()
         && userDoc().companyId == companyId;
     }
 
-    function isShopAdminOf(companyId) {
-      return isShopAdmin() && userDoc().companyId == companyId;
-    }
-
-    // User is not linked to a shop yet (missing, null, or empty companyId)
     function withoutCompany() {
       return !('companyId' in resource.data)
         || resource.data.companyId == null
         || resource.data.companyId == '';
     }
 
-    // Own safe fields only (filter preference, display name, etc.)
+    // Users may update their own non-security fields
     function selfSafeUserUpdate() {
       return request.auth.uid == userId
         && accountActive()
@@ -57,7 +59,7 @@ service cloud.firestore {
         && request.resource.data.get('active', true) == resource.data.get('active', true);
     }
 
-    // First-time join via invite code (link self to a company as tech/shop_admin)
+    // Staff join: attach self to a shop via invite code
     function joiningShop() {
       return request.auth.uid == userId
         && accountActive()
@@ -65,37 +67,31 @@ service cloud.firestore {
         && request.resource.data.companyId is string
         && request.resource.data.companyId.size() > 0
         && request.resource.data.role in ['tech', 'shop_admin']
-        && request.resource.data.get('active', true) == true;
+        && request.resource.data.get('active', true) != false;
     }
 
-    // Shop admin managing a staff member in their company (not platform admin)
     function shopAdminManagingUser() {
       return isShopAdmin()
-        && resource.data.companyId == userDoc().companyId
+        && resource.data.get('companyId', '') == userDoc().companyId
         && resource.data.get('role', '') != 'platform_admin'
         && request.resource.data.get('role', null) != 'platform_admin'
         && (
           request.resource.data.get('companyId', null) == resource.data.companyId
           || request.resource.data.get('companyId', null) == null
-        )
-        && (
-          !('role' in request.resource.data)
-          || request.resource.data.role == null
-          || request.resource.data.role in ['tech', 'shop_admin']
+          || request.resource.data.get('companyId', null) == ''
         );
     }
 
     match /users/{userId} {
-      allow read: if signedIn() && accountActive() && (
+      allow read: if accountActive() && (
         request.auth.uid == userId
         || isPlatformAdmin()
-        || (
-          isShopAdmin()
-          && resource.data.companyId == userDoc().companyId
-        )
+        || (isShopAdmin() && resource.data.get('companyId', '') == userDoc().companyId)
       );
+
       allow create: if signedIn() && request.auth.uid == userId;
-      allow update: if signedIn() && (
+
+      allow update: if accountActive() && (
         isPlatformAdmin()
         || selfSafeUserUpdate()
         || joiningShop()
@@ -104,21 +100,17 @@ service cloud.firestore {
     }
 
     match /companies/{companyId} {
-      // Signed-in users can look up a shop by invite code (query) and read that shop
-      allow read: if signedIn() && accountActive() && (
-        isPlatformAdmin()
-        || sameCompany(companyId)
-        || resource.data.keys().hasAny(['inviteCode'])
-      );
-      // Any signed-in active user may query companies (needed for invite-code lookup)
-      allow list: if signedIn() && accountActive();
+      // Open enough for invite-code query + shop members + platform admin
+      allow read, list: if accountActive();
 
       allow create, delete: if isPlatformAdmin();
+
       allow update: if isPlatformAdmin()
         || (
-          isShopAdminOf(companyId)
+          isShopAdmin()
+          && userDoc().companyId == companyId
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['settings', 'updatedAt'])
+              .hasOnly(['settings', 'updatedAt'])
         );
 
       match /jobs/{jobId} {
