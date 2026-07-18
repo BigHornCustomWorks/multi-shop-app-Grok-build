@@ -14,6 +14,7 @@ import {
   Mail,
   X,
   Check,
+  FileImage,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -54,7 +55,9 @@ export default function JobDetail({ job, onBack }) {
   const [bulkLocation, setBulkLocation] = useState('');
   const [scanPickerOpen, setScanPickerOpen] = useState(false);
   const [scanMode, setScanMode] = useState('ccc_estimate');
-  const fileRef = useRef(null);
+  /** Always-mounted file inputs (must not live only inside Parts tab) */
+  const scanFileRef = useRef(null);
+  const scanCameraRef = useRef(null);
   const photoRef = useRef(null);
   const invoiceKey = getInvoiceApiKey();
 
@@ -226,34 +229,43 @@ export default function JobDetail({ job, onBack }) {
       return;
     }
     if (!invoiceKey) {
-      alert(`Scanner API key not configured.\n\n${invoiceApiKeyHint()}`);
+      alert(
+        `Scanner API key not configured on this site.\n\n` +
+          `Local: add VITE_XAI_API_KEY to .env and restart.\n` +
+          `Vercel: Project → Settings → Environment Variables → VITE_XAI_API_KEY → Redeploy.`
+      );
       return;
     }
     setScanPickerOpen(true);
   };
 
-  const startScanWithMode = (mode) => {
+  /** Set mode in the same user gesture as opening the picker (required by browsers). */
+  const armScanMode = (mode) => {
     setScanMode(mode);
-    setScanPickerOpen(false);
-    // Let modal close, then open file picker
-    setTimeout(() => fileRef.current?.click(), 50);
   };
 
   const handleScanDocument = async (e) => {
     const file = e.target.files?.[0];
+    // Reset so the same file can be chosen again later
+    const clearInput = () => {
+      e.target.value = '';
+    };
     if (!file) return;
     if (!scannerEnabled) {
       alert('AI scanner is not enabled for this shop.');
+      clearInput();
       return;
     }
     if (!invoiceKey) {
       alert(`Scanner API key not configured.\n\n${invoiceApiKeyHint()}`);
+      clearInput();
       return;
     }
 
     const mode = scanMode || 'parts_invoice';
     const modeLabel = SCAN_MODES[mode]?.label || 'Document';
 
+    setScanPickerOpen(false);
     setIsScanning(true);
     try {
       const data = await scanDocumentWithGrok(invoiceKey, file, mode);
@@ -316,7 +328,7 @@ export default function JobDetail({ job, onBack }) {
       alert(err?.message || 'Could not scan document. Try again or enter data manually.');
     } finally {
       setIsScanning(false);
-      e.target.value = '';
+      clearInput();
     }
   };
 
@@ -650,13 +662,6 @@ export default function JobDetail({ job, onBack }) {
                   AI scan upgrade off
                 </div>
               )}
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*,.pdf,application/pdf"
-                className="hidden"
-                onChange={handleScanDocument}
-              />
             </div>
 
             {(form.parts || []).length > 0 && (
@@ -969,6 +974,27 @@ export default function JobDetail({ job, onBack }) {
         </div>
       )}
 
+      {/* Always mounted — file pickers must exist even on Info tab */}
+      <input
+        ref={scanFileRef}
+        id="csm-scan-file"
+        type="file"
+        accept="image/*,.pdf,application/pdf"
+        className="sr-only"
+        tabIndex={-1}
+        onChange={handleScanDocument}
+      />
+      <input
+        ref={scanCameraRef}
+        id="csm-scan-camera"
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="sr-only"
+        tabIndex={-1}
+        onChange={handleScanDocument}
+      />
+
       {scanPickerOpen && (
         <div
           className="fixed inset-0 z-[100] bg-black/50 dark:bg-black/70 flex items-end sm:items-center justify-center p-4"
@@ -978,7 +1004,7 @@ export default function JobDetail({ job, onBack }) {
           onClick={() => setScanPickerOpen(false)}
         >
           <div
-            className="app-card w-full max-w-md p-5 space-y-3 shadow-2xl"
+            className="app-card w-full max-w-md p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
@@ -995,24 +1021,51 @@ export default function JobDetail({ job, onBack }) {
               </button>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-              One tool, two document types. CCC estimate fills the job (customer, vehicle, damage,
-              parts). Parts invoice adds vendor line items to Parts.
+              Pick a document type, then take a photo or choose a file from this device.
             </p>
+
             {Object.values(SCAN_MODES).map((m) => (
-              <button
+              <div
                 key={m.id}
-                type="button"
-                onClick={() => startScanWithMode(m.id)}
-                className="w-full text-left p-4 rounded-xl border border-slate-200 dark:border-slate-600 hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
+                className="p-4 rounded-xl border border-slate-200 dark:border-slate-600 space-y-3"
               >
-                <div className="font-black text-sm" style={{ color: primary }}>
-                  {m.label}
+                <div>
+                  <div className="font-black text-sm" style={{ color: primary }}>
+                    {m.label}
+                  </div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                    {m.hint}
+                  </div>
                 </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                  {m.hint}
+                <div className="grid grid-cols-2 gap-2">
+                  {/* Labels open the file dialog in the same user gesture — works on phones */}
+                  <label
+                    htmlFor="csm-scan-camera"
+                    onPointerDown={() => armScanMode(m.id)}
+                    className="flex flex-col items-center justify-center gap-1.5 py-3 px-2 rounded-xl text-white text-[10px] font-black uppercase tracking-wide cursor-pointer active:scale-[0.98]"
+                    style={{ backgroundColor: primary }}
+                  >
+                    <Camera size={18} />
+                    Take photo
+                  </label>
+                  <label
+                    htmlFor="csm-scan-file"
+                    onPointerDown={() => armScanMode(m.id)}
+                    className="flex flex-col items-center justify-center gap-1.5 py-3 px-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-[10px] font-black uppercase tracking-wide cursor-pointer active:scale-[0.98]"
+                  >
+                    <FileImage size={18} />
+                    Choose file
+                  </label>
                 </div>
-              </button>
+              </div>
             ))}
+
+            {isScanning && (
+              <div className="flex items-center justify-center gap-2 text-sm font-bold text-slate-600 dark:text-slate-300 py-2">
+                <Loader2 className="animate-spin" size={18} />
+                Scanning… this can take a few seconds
+              </div>
+            )}
           </div>
         </div>
       )}
