@@ -45,9 +45,11 @@ export default function FirebaseSetup() {
         </div>
 
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">
-          Firebase Console → gear → <b>Project settings</b> → <b>Your apps</b> → Web →{' '}
-          <b>Config</b>. Paste the whole <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 rounded">firebaseConfig</code>{' '}
-          object (the console JS snippet is OK).
+          This only has to be done <b>once per browser</b> unless you add Firebase keys to Vercel
+          (recommended for phones). Firebase Console → gear → <b>Project settings</b> → Web app →{' '}
+          <b>Config</b>. Paste the whole{' '}
+          <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 rounded">firebaseConfig</code>{' '}
+          object.
         </p>
 
         <textarea
