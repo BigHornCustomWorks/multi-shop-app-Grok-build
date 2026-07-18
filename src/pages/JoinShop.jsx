@@ -43,7 +43,14 @@ export default function JoinShop() {
 
       window.location.reload();
     } catch (err) {
-      setError(err.message || 'Could not join shop');
+      const code = err?.code || '';
+      if (code === 'permission-denied' || /insufficient permissions|permission/i.test(err?.message || '')) {
+        setError(
+          'Missing or insufficient permissions. The platform owner must publish Firestore security rules in Firebase Console (Firestore → Rules). Use the firestore.rules file from the project.'
+        );
+      } else {
+        setError(err.message || 'Could not join shop');
+      }
     } finally {
       setBusy(false);
     }
