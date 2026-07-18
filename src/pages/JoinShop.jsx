@@ -43,10 +43,11 @@ export default function JoinShop() {
 
       window.location.reload();
     } catch (err) {
+      console.error('Join shop failed', err);
       const code = err?.code || '';
       if (code === 'permission-denied' || /insufficient permissions|permission/i.test(err?.message || '')) {
         setError(
-          'Missing or insufficient permissions. The platform owner must publish Firestore security rules in Firebase Console (Firestore → Rules). Use the firestore.rules file from the project.'
+          'Still blocked by Firestore rules. Open Firebase Console → the SAME project as this app → Firestore → Rules → paste firestore.rules → Publish. Then open Master Control once (to index invite codes) and try again.'
         );
       } else {
         setError(err.message || 'Could not join shop');

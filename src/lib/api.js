@@ -220,9 +220,10 @@ export async function createCompany({ name, primaryColor, contactEmail, plan }) 
   const id = generateId();
   const billing = defaultCompanyBilling();
   const planDef = planById(plan || billing.plan);
+  const inviteCode = generateCode(6);
   const payload = {
     name: name.trim(),
-    inviteCode: generateCode(6),
+    inviteCode,
     contactEmail: (contactEmail || '').trim().toLowerCase(),
     plan: planDef.id,
     seatLimit: planDef.seatLimit,
@@ -240,6 +241,11 @@ export async function createCompany({ name, primaryColor, contactEmail, plan }) 
     updatedAt: Date.now(),
   };
   await setDoc(doc(db(), 'companies', id), payload);
+  // Direct lookup index so staff can join without a companies collection query
+  await setDoc(doc(db(), 'inviteCodes', inviteCode), {
+    companyId: id,
+    createdAt: Date.now(),
+  });
   return { id, ...payload };
 }
 
@@ -251,15 +257,56 @@ export async function updateCompany(companyId, partial) {
   );
 }
 
+/** Ensure inviteCodes/{CODE} points at this company (platform admin). */
+export async function ensureInviteCodeIndex(company) {
+  if (!company?.id || !company?.inviteCode) return;
+  const code = String(company.inviteCode).trim().toUpperCase();
+  await setDoc(
+    doc(db(), 'inviteCodes', code),
+    { companyId: company.id, updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
 export async function findCompanyByInviteCode(code) {
+  const normalized = code.trim().toUpperCase();
+  if (!normalized) return null;
+
+  // 1) Preferred: direct document get (works with simple security rules)
+  try {
+    const invSnap = await getDoc(doc(db(), 'inviteCodes', normalized));
+    if (invSnap.exists()) {
+      const companyId = invSnap.data()?.companyId;
+      if (companyId) {
+        const companySnap = await getDoc(doc(db(), 'companies', companyId));
+        if (companySnap.exists()) {
+          return { id: companySnap.id, ...companySnap.data() };
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('inviteCodes lookup failed, trying companies query', e);
+  }
+
+  // 2) Fallback: query companies (needs list permission)
   const q = query(
     collection(db(), 'companies'),
-    where('inviteCode', '==', code.trim().toUpperCase()),
+    where('inviteCode', '==', normalized),
     limit(1)
   );
   const snap = await getDocs(q);
   if (snap.empty) return null;
   const d = snap.docs[0];
+  // Best-effort: write index for next time (may fail if not platform admin — ignore)
+  try {
+    await setDoc(
+      doc(db(), 'inviteCodes', normalized),
+      { companyId: d.id, updatedAt: Date.now() },
+      { merge: true }
+    );
+  } catch {
+    /* ignore */
+  }
   return { id: d.id, ...d.data() };
 }
 

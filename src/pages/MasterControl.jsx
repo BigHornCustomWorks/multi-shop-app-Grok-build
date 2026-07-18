@@ -28,6 +28,7 @@ import {
   removeUserFromCompany,
   setUserRole,
   isUserAccountActive,
+  ensureInviteCodeIndex,
 } from '../lib/api';
 import {
   defaultCompanySettings,
@@ -50,7 +51,18 @@ export default function MasterControl() {
   const [message, setMessage] = useState('');
 
   useEffect(() => {
-    return subscribeCompanies(setCompanies, (err) => console.error(err));
+    return subscribeCompanies(
+      (list) => {
+        setCompanies(list);
+        // Index invite codes so staff join works (once per load, platform admin)
+        list.forEach((c) => {
+          ensureInviteCodeIndex(c).catch((e) =>
+            console.warn('Could not index invite code for', c?.name, e)
+          );
+        });
+      },
+      (err) => console.error(err)
+    );
   }, []);
 
   const selected = companies.find((c) => c.id === selectedId) || null;

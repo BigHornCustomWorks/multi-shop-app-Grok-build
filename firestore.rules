@@ -14,14 +14,12 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
-    // Missing active field = allowed; only explicit false is blocked
     function accountActive() {
-      return signedIn()
-        && (
-          !userExists()
-          || !('active' in userDoc())
-          || userDoc().active != false
-        );
+      return signedIn() && (
+        !userExists()
+        || !('active' in userDoc())
+        || userDoc().active != false
+      );
     }
 
     function isPlatformAdmin() {
@@ -44,67 +42,33 @@ service cloud.firestore {
         && userDoc().companyId == companyId;
     }
 
-    function withoutCompany() {
-      return !('companyId' in resource.data)
-        || resource.data.companyId == null
-        || resource.data.companyId == '';
-    }
-
-    // Users may update their own non-security fields
-    function selfSafeUserUpdate() {
-      return request.auth.uid == userId
-        && accountActive()
-        && request.resource.data.get('role', null) == resource.data.get('role', null)
-        && request.resource.data.get('companyId', null) == resource.data.get('companyId', null)
-        && request.resource.data.get('active', true) == resource.data.get('active', true);
-    }
-
-    // Staff join: attach self to a shop via invite code
-    function joiningShop() {
-      return request.auth.uid == userId
-        && accountActive()
-        && withoutCompany()
-        && request.resource.data.companyId is string
-        && request.resource.data.companyId.size() > 0
-        && request.resource.data.role in ['tech', 'shop_admin']
-        && request.resource.data.get('active', true) != false;
-    }
-
-    function shopAdminManagingUser() {
-      return isShopAdmin()
-        && resource.data.get('companyId', '') == userDoc().companyId
-        && resource.data.get('role', '') != 'platform_admin'
-        && request.resource.data.get('role', null) != 'platform_admin'
-        && (
-          request.resource.data.get('companyId', null) == resource.data.companyId
-          || request.resource.data.get('companyId', null) == null
-          || request.resource.data.get('companyId', null) == ''
-        );
-    }
-
+    // ── Users ──────────────────────────────────────────────────────────────
     match /users/{userId} {
-      allow read: if accountActive() && (
-        request.auth.uid == userId
-        || isPlatformAdmin()
-        || (isShopAdmin() && resource.data.get('companyId', '') == userDoc().companyId)
-      );
+      // Anyone signed in can read/update their OWN user doc (needed for join + profile)
+      allow read, create, update: if signedIn() && request.auth.uid == userId && accountActive();
 
-      allow create: if signedIn() && request.auth.uid == userId;
+      // Platform admin full access
+      allow read, update: if isPlatformAdmin();
 
-      allow update: if accountActive() && (
-        isPlatformAdmin()
-        || selfSafeUserUpdate()
-        || joiningShop()
-        || shopAdminManagingUser()
-      );
+      // Shop admin can manage staff in their company
+      allow read, update: if isShopAdmin()
+        && resource.data.get('companyId', '') == userDoc().companyId
+        && resource.data.get('role', '') != 'platform_admin';
     }
 
+    // ── Invite codes (direct lookup by code — no collection query needed) ──
+    match /inviteCodes/{code} {
+      allow get: if signedIn() && accountActive();
+      allow list: if isPlatformAdmin();
+      allow create, update, delete: if isPlatformAdmin();
+    }
+
+    // ── Companies ──────────────────────────────────────────────────────────
     match /companies/{companyId} {
-      // Open enough for invite-code query + shop members + platform admin
-      allow read, list: if accountActive();
+      // Signed-in users can read companies (invite join + member access)
+      allow read, list: if signedIn() && accountActive();
 
       allow create, delete: if isPlatformAdmin();
-
       allow update: if isPlatformAdmin()
         || (
           isShopAdmin()
