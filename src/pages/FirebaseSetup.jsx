@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
 import { Database, ShieldAlert } from 'lucide-react';
 import { APP_NAME } from '../config';
-import { saveFirebaseConfig, initFirebase } from '../lib/firebase';
+import {
+  saveFirebaseConfig,
+  initFirebase,
+  parseFirebaseConfigText,
+} from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 
 export default function FirebaseSetup() {
@@ -10,23 +14,24 @@ export default function FirebaseSetup() {
   const [error, setError] = useState('');
 
   const handleSave = () => {
+    setError('');
     try {
-      const parsed = JSON.parse(raw);
-      if (!parsed.apiKey || !parsed.projectId) {
-        throw new Error('Missing apiKey or projectId');
-      }
+      const parsed = parseFirebaseConfigText(raw);
       saveFirebaseConfig(parsed);
       initFirebase(parsed);
       connectFirebase(parsed);
       window.location.reload();
-    } catch {
-      setError('Paste a valid Firebase web config JSON (must include apiKey and projectId).');
+    } catch (err) {
+      setError(
+        err?.message ||
+          'Paste a valid Firebase web config (must include apiKey and projectId).'
+      );
     }
   };
 
   return (
     <div className="app-shell flex items-center justify-center p-6 bg-gradient-to-b from-slate-900 via-slate-900 to-slate-800">
-      <div className="app-card p-8 w-full max-w-md shadow-2xl">
+      <div className="app-card p-8 w-full max-w-md shadow-xl">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-3 bg-blue-100 dark:bg-blue-950/60 rounded-2xl text-blue-600 dark:text-blue-400">
             <Database size={24} />
@@ -39,22 +44,29 @@ export default function FirebaseSetup() {
           </div>
         </div>
 
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
-          Create a <b>new</b> Firebase project for this product, then paste the web app config JSON
-          below. See <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 rounded">SETUP.md</code>{' '}
-          for steps.
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">
+          Firebase Console → gear → <b>Project settings</b> → <b>Your apps</b> → Web →{' '}
+          <b>Config</b>. Paste the whole <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 rounded">firebaseConfig</code>{' '}
+          object (the console JS snippet is OK).
         </p>
 
         <textarea
-          className="field h-48 text-xs font-mono mb-4"
-          placeholder='{"apiKey":"...","authDomain":"...","projectId":"...", ...}'
+          className="field h-52 text-xs font-mono mb-2"
+          placeholder={`const firebaseConfig = {\n  apiKey: "AIza...",\n  authDomain: "...",\n  projectId: "...",\n  ...\n};`}
           value={raw}
           onChange={(e) => setRaw(e.target.value)}
+          spellCheck={false}
         />
 
+        <p className="text-[10px] text-slate-400 mb-4 leading-relaxed">
+          Also add this site under Authentication → Settings → Authorized domains (your Vercel
+          domain and localhost).
+        </p>
+
         {error && (
-          <div className="mb-4 p-3 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-300 rounded-xl text-xs font-bold flex items-center gap-2 border border-red-100 dark:border-red-900">
-            <ShieldAlert size={14} /> {error}
+          <div className="mb-4 p-3 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-300 rounded-xl text-xs font-bold flex items-start gap-2 border border-red-100 dark:border-red-900">
+            <ShieldAlert size={14} className="shrink-0 mt-0.5" />
+            {error}
           </div>
         )}
 
