@@ -379,77 +379,72 @@ export default function Dashboard({ onOpenJob, onOpenSettings, onOpenParts }) {
                     : ''
                 }`}
               >
-                {/* Row 1: name + days badge */}
-                <div className="flex justify-between items-start gap-2">
-                  <div className="font-bold text-[15px] sm:text-base text-slate-900 dark:text-slate-50 truncate min-w-0 leading-tight">
-                    {job.customerName || 'New Repair'}
-                  </div>
-                  {daysLabel && (
-                    <div
-                      className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide text-rose-600 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 px-2 py-0.5 rounded-lg shrink-0"
-                      title={
-                        arrivalForDays
-                          ? `In shop since ${arrivalForDays}`
-                          : 'Days at shop'
-                      }
-                    >
-                      <CalendarDays size={11} className="opacity-80" />
-                      {daysLabel}
+                {/* Two columns: left = customer/vehicle/damage; right = days, tech, RO */}
+                <div className="flex gap-2 items-start">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold text-[15px] sm:text-base text-slate-900 dark:text-slate-50 truncate leading-tight">
+                      {job.customerName || 'New Repair'}
                     </div>
-                  )}
-                </div>
-
-                {/* Row 2: tech (left of RO) + RO */}
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
-                  {job.assignedTech ? (
-                    <span className="text-[10px] font-black uppercase tracking-wide px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600 shrink-0">
-                      {job.assignedTech}
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400 shrink-0">
-                      Unassigned
-                    </span>
-                  )}
-                  <span
-                    className="text-sm font-black truncate"
-                    style={{ color: primary }}
-                  >
-                    RO: {job.roNumber || '—'}
-                  </span>
-                </div>
-
-                {/* Vehicle */}
-                <div className="mt-0.5 text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wide truncate">
-                  {job.vehicle || 'No vehicle specified'}
-                </div>
-
-                {/* Damage — keep our data, compact */}
-                {job.damageSummary ? (
-                  <div className="mt-1 text-[11px] sm:text-xs text-slate-700 dark:text-slate-200 font-medium leading-snug line-clamp-2">
-                    <span className="font-bold text-slate-500 dark:text-slate-400 mr-1">
-                      Damage:
-                    </span>
-                    {job.damageSummary}
+                    <div className="mt-0.5 text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wide truncate">
+                      {job.vehicle || 'No vehicle specified'}
+                    </div>
+                    {job.damageSummary ? (
+                      <div className="mt-1 text-[11px] sm:text-xs text-slate-700 dark:text-slate-200 font-medium leading-snug line-clamp-2">
+                        <span className="font-bold text-slate-500 dark:text-slate-400 mr-1">
+                          Damage:
+                        </span>
+                        {job.damageSummary}
+                      </div>
+                    ) : null}
+                    <div className="mt-1.5 flex flex-wrap gap-1.5 items-center">
+                      {(job.parts || []).length > 0 && (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wide px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-800">
+                          <Package size={11} />
+                          {(job.parts || []).length} part
+                          {(job.parts || []).length === 1 ? '' : 's'}
+                        </span>
+                      )}
+                      {returnCount > 0 && (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-red-100 dark:bg-red-950/60 border border-red-300 dark:border-red-800 px-2 py-0.5 text-red-700 dark:text-red-300">
+                          <AlertTriangle size={11} className="shrink-0" />
+                          <span className="text-[9px] font-black uppercase tracking-wide">
+                            {returnCount} return{returnCount === 1 ? '' : 's'}
+                          </span>
+                        </span>
+                      )}
+                    </div>
                   </div>
-                ) : null}
 
-                {/* Parts return + parts count chips */}
-                <div className="mt-1.5 flex flex-wrap gap-1.5 items-center">
-                  {(job.parts || []).length > 0 && (
-                    <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wide px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-800">
-                      <Package size={11} />
-                      {(job.parts || []).length} part
-                      {(job.parts || []).length === 1 ? '' : 's'}
-                    </span>
-                  )}
-                  {returnCount > 0 && (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-red-100 dark:bg-red-950/60 border border-red-300 dark:border-red-800 px-2 py-0.5 text-red-700 dark:text-red-300">
-                      <AlertTriangle size={11} className="shrink-0" />
-                      <span className="text-[9px] font-black uppercase tracking-wide">
-                        {returnCount} return{returnCount === 1 ? '' : 's'}
+                  <div className="flex flex-col items-end gap-1 shrink-0 max-w-[42%] text-right">
+                    {daysLabel && (
+                      <div
+                        className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide text-rose-600 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 px-2 py-0.5 rounded-lg"
+                        title={
+                          arrivalForDays
+                            ? `In shop since ${arrivalForDays}`
+                            : 'Days at shop'
+                        }
+                      >
+                        <CalendarDays size={11} className="opacity-80" />
+                        {daysLabel}
+                      </div>
+                    )}
+                    {job.assignedTech ? (
+                      <span className="text-[10px] font-black uppercase tracking-wide px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600 max-w-full truncate">
+                        {job.assignedTech}
                       </span>
+                    ) : (
+                      <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400">
+                        Unassigned
+                      </span>
+                    )}
+                    <span
+                      className="text-xs sm:text-sm font-black truncate max-w-full"
+                      style={{ color: primary }}
+                    >
+                      RO: {job.roNumber || '—'}
                     </span>
-                  )}
+                  </div>
                 </div>
 
                 {/* Location + status: side by side, large rounded rects */}

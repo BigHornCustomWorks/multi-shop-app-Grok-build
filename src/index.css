@@ -136,12 +136,22 @@ button {
 
 .field {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 0.75rem 0.875rem;
   background: var(--app-surface-2);
   border: 1px solid var(--app-border);
   border-radius: 0.75rem;
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Native date inputs ignore width unless min-width is forced */
+input[type='date'].field {
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
 }
 
 .field:focus {

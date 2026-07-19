@@ -666,27 +666,28 @@ export default function JobDetail({ job, onBack }) {
                   placeholder="Year Make Model"
                 />
               </Field>
-              {/* Date + RO side by side (date slightly narrower on small screens) */}
-              <div className="grid grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] sm:grid-cols-2 gap-3 lg:col-span-2">
-                <Field label="Date in shop">
-                  <input
-                    type="date"
-                    className="field font-bold text-sm min-w-0"
-                    value={form.arrivalDate || ''}
-                    onChange={(e) => update('arrivalDate', e.target.value)}
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1 hidden sm:block">
-                    Days-at-shop counter on the list.
-                  </p>
-                </Field>
-                <Field label="RO number">
-                  <input
-                    className="field font-bold min-w-0"
-                    value={form.roNumber || ''}
-                    onChange={(e) => update('roNumber', e.target.value)}
-                    placeholder="RO #"
-                  />
-                </Field>
+              {/* Date + RO side by side — both min-w-0 so native date input cannot overflow */}
+              <div className="flex gap-2 lg:col-span-2 min-w-0 w-full">
+                <div className="w-[45%] min-w-0 shrink overflow-hidden">
+                  <Field label="Date in shop">
+                    <input
+                      type="date"
+                      className="field font-bold w-full min-w-0 max-w-full text-[13px] sm:text-sm box-border"
+                      value={form.arrivalDate || ''}
+                      onChange={(e) => update('arrivalDate', e.target.value)}
+                    />
+                  </Field>
+                </div>
+                <div className="w-[55%] min-w-0 shrink overflow-hidden">
+                  <Field label="RO number">
+                    <input
+                      className="field font-bold w-full min-w-0"
+                      value={form.roNumber || ''}
+                      onChange={(e) => update('roNumber', e.target.value)}
+                      placeholder="RO #"
+                    />
+                  </Field>
+                </div>
               </div>
               <div className="lg:col-span-2">
                 <Field label="Damage / what happened">

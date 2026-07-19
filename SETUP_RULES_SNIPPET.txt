@@ -1,8 +1,13 @@
-﻿rules_version = '2';
+rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
     function signedIn() {
       return request.auth != null;
+    }
+
+    function userExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
     function userDoc() {
@@ -10,114 +15,91 @@ service cloud.firestore {
     }
 
     function accountActive() {
-      return !exists(/databases/$(database)/documents/users/$(request.auth.uid))
+      return signedIn() && (
+        !userExists()
         || !('active' in userDoc())
-        || userDoc().active == true;
+        || userDoc().active != false
+      );
     }
 
     function isPlatformAdmin() {
-      return signedIn()
-        && accountActive()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+      return accountActive()
+        && userExists()
         && userDoc().role == 'platform_admin';
     }
 
     function isShopAdmin() {
-      return signedIn()
-        && accountActive()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+      return accountActive()
+        && userExists()
         && userDoc().role == 'shop_admin'
-        && userDoc().companyId is string;
+        && userDoc().companyId is string
+        && userDoc().companyId.size() > 0;
     }
 
+    function isPartsManager() {
+      return accountActive()
+        && userExists()
+        && userDoc().role == 'parts_manager'
+        && userDoc().companyId is string
+        && userDoc().companyId.size() > 0;
+    }
+
+    /** Shop staff (tech, shop_admin, parts_manager) for this company */
     function sameCompany(companyId) {
-      return signedIn()
-        && accountActive()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+      return accountActive()
+        && userExists()
+        && userDoc().companyId is string
         && userDoc().companyId == companyId;
     }
 
-    function isShopAdminOf(companyId) {
-      return isShopAdmin() && userDoc().companyId == companyId;
-    }
-
-    // Own safe fields only (filter preference, display name, etc.)
-    function selfSafeUserUpdate() {
-      return request.auth.uid == userId
-        && accountActive()
-        && request.resource.data.role == resource.data.role
-        && request.resource.data.companyId == resource.data.companyId
-        && request.resource.data.get('active', true) == resource.data.get('active', true);
-    }
-
-    // First-time join via invite code
-    function joiningShop() {
-      return request.auth.uid == userId
-        && accountActive()
-        && resource.data.companyId == null
-        && request.resource.data.companyId is string
-        && request.resource.data.role in ['tech', 'shop_admin']
-        && request.resource.data.get('active', true) == true;
-    }
-
-    // Shop admin managing a staff member in their company (not platform admin)
-    function shopAdminManagingUser() {
-      return isShopAdmin()
-        && resource.data.companyId == userDoc().companyId
-        && resource.data.role != 'platform_admin'
-        && request.resource.data.role != 'platform_admin'
-        && (
-          // Deactivate / reactivate
-          request.resource.data.companyId == resource.data.companyId
-          // Or remove from shop
-          || request.resource.data.companyId == null
-        )
-        // Shop admin may only set tech or shop_admin (or null when removed)
-        && (
-          request.resource.data.role == null
-          || request.resource.data.role in ['tech', 'shop_admin']
-        );
+    /** Anyone who may use part-request inbox / create requests */
+    function canUsePartRequests(companyId) {
+      return isPlatformAdmin() || sameCompany(companyId);
     }
 
     match /users/{userId} {
-      allow read: if signedIn() && accountActive() && (
-        request.auth.uid == userId
-        || isPlatformAdmin()
-        || (
-          isShopAdmin()
-          && resource.data.companyId == userDoc().companyId
-        )
-      );
-      allow create: if signedIn() && request.auth.uid == userId;
-      allow update: if signedIn() && (
-        isPlatformAdmin()
-        || selfSafeUserUpdate()
-        || joiningShop()
-        || shopAdminManagingUser()
-      );
+      allow read, create, update: if signedIn() && request.auth.uid == userId && accountActive();
+      allow read, update: if isPlatformAdmin();
+      allow read, update: if isShopAdmin()
+        && resource.data.get('companyId', '') == userDoc().companyId
+        && resource.data.get('role', '') != 'platform_admin';
+    }
+
+    match /inviteCodes/{code} {
+      allow get: if signedIn() && accountActive();
+      allow list: if isPlatformAdmin();
+      allow create, update, delete: if isPlatformAdmin();
     }
 
     match /companies/{companyId} {
-      allow read: if signedIn() && accountActive() && (
-        isPlatformAdmin()
-        || sameCompany(companyId)
-        || resource.data.inviteCode is string
-      );
-      allow list: if signedIn() && accountActive();
+      allow read, list: if signedIn() && accountActive();
 
-      // Platform: full control. Shop admin: settings only (e.g. tech name list)
       allow create, delete: if isPlatformAdmin();
       allow update: if isPlatformAdmin()
         || (
-          isShopAdminOf(companyId)
+          isShopAdmin()
+          && userDoc().companyId == companyId
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['settings', 'updatedAt'])
+              .hasOnly(['settings', 'updatedAt'])
         );
 
       match /jobs/{jobId} {
         allow read, write: if isPlatformAdmin() || sameCompany(companyId);
       }
+
+      /**
+       * Part requests — must be published in Firebase Console for the app
+       * parts inbox / "Request a part" to work. Without this block, Firestore
+       * returns "Missing or insufficient permissions".
+       */
+      match /partRequests/{requestId} {
+        allow read, list: if canUsePartRequests(companyId);
+        allow create: if canUsePartRequests(companyId);
+        allow update: if canUsePartRequests(companyId);
+        allow delete: if isPlatformAdmin()
+          || isShopAdmin()
+          || (isPartsManager() && userDoc().companyId == companyId);
+      }
     }
   }
 }
-

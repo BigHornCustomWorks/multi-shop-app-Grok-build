@@ -44,10 +44,17 @@ service cloud.firestore {
         && userDoc().companyId.size() > 0;
     }
 
+    /** Shop staff (tech, shop_admin, parts_manager) for this company */
     function sameCompany(companyId) {
       return accountActive()
         && userExists()
+        && userDoc().companyId is string
         && userDoc().companyId == companyId;
+    }
+
+    /** Anyone who may use part-request inbox / create requests */
+    function canUsePartRequests(companyId) {
+      return isPlatformAdmin() || sameCompany(companyId);
     }
 
     match /users/{userId} {
@@ -80,13 +87,17 @@ service cloud.firestore {
         allow read, write: if isPlatformAdmin() || sameCompany(companyId);
       }
 
-      // Part requests: all shop members can create/read; managers update status
+      /**
+       * Part requests — must be published in Firebase Console for the app
+       * parts inbox / "Request a part" to work. Without this block, Firestore
+       * returns "Missing or insufficient permissions".
+       */
       match /partRequests/{requestId} {
-        allow read: if isPlatformAdmin() || sameCompany(companyId);
-        allow create: if isPlatformAdmin() || sameCompany(companyId);
-        allow update: if isPlatformAdmin()
-          || sameCompany(companyId);
-        allow delete: if isPlatformAdmin() || isShopAdmin()
+        allow read, list: if canUsePartRequests(companyId);
+        allow create: if canUsePartRequests(companyId);
+        allow update: if canUsePartRequests(companyId);
+        allow delete: if isPlatformAdmin()
+          || isShopAdmin()
           || (isPartsManager() && userDoc().companyId == companyId);
       }
     }

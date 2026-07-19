@@ -38,7 +38,12 @@ export default function PartsInbox({ onBack, onOpenJob }) {
       setRequests,
       (err) => {
         console.error(err);
-        setError(err.message || 'Could not load requests');
+        const msg = err.message || 'Could not load requests';
+        setError(
+          /permission|insufficient/i.test(msg)
+            ? 'Missing permissions for part requests. In Firebase Console → Firestore → Rules, publish the latest rules from the project file firestore.rules (must include partRequests), then try again.'
+            : msg
+        );
       }
     );
   }, [company?.id]);
