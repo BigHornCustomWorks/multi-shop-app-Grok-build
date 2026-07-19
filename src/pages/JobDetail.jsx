@@ -619,11 +619,7 @@ export default function JobDetail({ job, onBack }) {
         </div>
       </div>
 
-      <div
-        className={`app-page-pad py-4 space-y-4 ${
-          section === 'info' ? 'pb-28' : 'pb-24'
-        }`}
-      >
+      <div className="app-page-pad py-4 space-y-4 pb-24">
         {section === 'info' && (
           <div className="app-card p-5 lg:p-6 space-y-4 lg:max-w-none">
             {scannerEnabled && (
@@ -915,8 +911,24 @@ export default function JobDetail({ job, onBack }) {
               )}
             </div>
 
-            {/* Spacer for fixed archive bar */}
-            <div className="h-4" aria-hidden />
+            {/* Archive at bottom of Info (after notes) — not a fixed overlay */}
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-700 space-y-2">
+              <button
+                type="button"
+                onClick={tryArchiveToggle}
+                disabled={!form.isArchived && hasPendingReturns}
+                className={`w-full py-3.5 rounded-xl text-xs font-black uppercase border transition-colors ${
+                  !form.isArchived && hasPendingReturns
+                    ? 'border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 text-red-400 cursor-not-allowed'
+                    : 'border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700'
+                }`}
+              >
+                {form.isArchived ? 'Unarchive job' : 'Archive job'}
+              </button>
+              <p className="text-[10px] text-center text-slate-400">
+                Scroll to the bottom of Info to archive when the job is complete.
+              </p>
+            </div>
           </div>
         )}
 
@@ -1265,28 +1277,6 @@ export default function JobDetail({ job, onBack }) {
           </div>
         )}
       </div>
-
-      {/* Archive locked to bottom of screen on Info tab */}
-      {section === 'info' && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-none">
-          <div className="app-frame app-frame--wide mx-auto pointer-events-auto">
-            <div className="app-page-pad pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 bg-gradient-to-t from-[var(--app-bg)] via-[var(--app-bg)] to-transparent">
-              <button
-                type="button"
-                onClick={tryArchiveToggle}
-                disabled={!form.isArchived && hasPendingReturns}
-                className={`w-full py-3.5 rounded-xl text-xs font-black uppercase border shadow-lg transition-colors ${
-                  !form.isArchived && hasPendingReturns
-                    ? 'border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 text-red-400 cursor-not-allowed'
-                    : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800'
-                }`}
-              >
-                {form.isArchived ? 'Unarchive job' : 'Archive job'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {lightbox && (
         <div
