@@ -239,9 +239,14 @@ export default function JobDetail({ job, onBack }) {
         sid: result.sid || '',
         error: '',
         manual,
+        trialTemplate: Boolean(result.trialTemplate),
       });
-      setSmsMsg('Text sent.');
-      setTimeout(() => setSmsMsg(''), 4000);
+      setSmsMsg(
+        result.trialTemplate
+          ? 'Text sent (Twilio trial template — not full custom shop wording yet).'
+          : 'Text sent.'
+      );
+      setTimeout(() => setSmsMsg(''), 5000);
       return { ok: true, result };
     } catch (err) {
       appendSmsLog({
@@ -288,12 +293,17 @@ export default function JobDetail({ job, onBack }) {
             sid: result.sid || '',
             error: '',
             manual: false,
+            trialTemplate: Boolean(result.trialTemplate),
           },
           ...(next.smsLog || []),
         ].slice(0, 20);
         await persist({ ...next, smsLog: log });
-        setSmsMsg('Status text sent to customer.');
-        setTimeout(() => setSmsMsg(''), 4000);
+        setSmsMsg(
+          result.trialTemplate
+            ? 'Status text sent (Twilio trial template).'
+            : 'Status text sent to customer.'
+        );
+        setTimeout(() => setSmsMsg(''), 5000);
       } catch (err) {
         const log = [
           {
@@ -805,8 +815,9 @@ export default function JobDetail({ job, onBack }) {
                 </p>
               ) : (
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  Sends from your Twilio trial number. Message includes shop name, vehicle, RO,
-                  status, and Reply STOP. Trial accounts only text <b>verified</b> numbers in Twilio.
+                  Sends via Twilio. On a <b>30-day trial</b>, Twilio only allows their fixed templates
+                  (not custom RO/vehicle text) and only to <b>verified</b> phone numbers. Upgrade
+                  Twilio when you want real shop wording to any customer.
                 </p>
               )}
               <button

@@ -292,7 +292,11 @@ Also ensure `VITE_FIREBASE_API_KEY` (or `FIREBASE_WEB_API_KEY`) is set so the AP
 
 - You can only text **Verified Caller IDs** until you upgrade.  
 - Console → Phone Numbers → **Verified Caller IDs** → add your cell, enter the code.  
-- After 30 days, upgrade Twilio or buy a permanent number and update `TWILIO_FROM_NUMBER`.
+- **Custom message text is blocked on trial.** Twilio only allows fixed Body templates such as `sms_delivery_updates`.  
+- On Vercel add: `TWILIO_TRIAL_MODE` = `true` (and Redeploy). The app will send that template automatically.  
+- Optional: `TWILIO_TRIAL_TEMPLATE` = `sms_delivery_updates` (or `sms_account_alerts`, `sms_order_confirmation`, …).  
+- **Upgrade Twilio** when you want real shop wording (RO, vehicle, status) to any customer number.  
+- After upgrade: set `TWILIO_TRIAL_MODE` = `false` (or delete it) and Redeploy.
 
 ---
 

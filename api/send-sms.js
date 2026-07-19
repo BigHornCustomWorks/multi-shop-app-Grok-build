@@ -6,11 +6,15 @@
  *   TWILIO_ACCOUNT_SID
  *   TWILIO_AUTH_TOKEN          (primary auth token)
  *   TWILIO_FROM_NUMBER         (E.164, e.g. +15551234567)
- * Optional (instead of auth token):
- *   TWILIO_API_KEY_SID
- *   TWILIO_API_KEY_SECRET
- * Auth:
- *   FIREBASE_WEB_API_KEY or VITE_FIREBASE_API_KEY  (to verify the caller’s Firebase ID token)
+ *
+ * Trial accounts (Twilio 30-day trial):
+ *   Custom message text is blocked. Body must be a predefined template id, e.g.:
+ *   sms_delivery_updates, sms_account_alerts, sms_order_confirmation, …
+ *   Set TWILIO_TRIAL_MODE=true  (recommended while on trial)
+ *   Optional: TWILIO_TRIAL_TEMPLATE=sms_delivery_updates
+ *
+ * After you upgrade Twilio, set TWILIO_TRIAL_MODE=false (or remove it) for full
+ * custom shop status text.
  */
 
 function json(res, status, body) {
@@ -90,7 +94,6 @@ function env(name) {
   let v = process.env[name];
   if (v == null) return '';
   v = String(v).trim();
-  // Vercel/UI paste sometimes includes surrounding quotes
   if (
     (v.startsWith('"') && v.endsWith('"')) ||
     (v.startsWith("'") && v.endsWith("'"))
@@ -100,6 +103,30 @@ function env(name) {
   return v;
 }
 
+function isTruthyEnv(name) {
+  const v = env(name).toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
+/** Allowed Body values while Twilio account is still on free trial */
+const TRIAL_TEMPLATES = new Set([
+  'sms_2fa',
+  'sms_appointment_reminders',
+  'sms_order_confirmation',
+  'sms_delivery_updates',
+  'sms_customer_support',
+  'sms_marketing_promotions',
+  'sms_event_notifications',
+  'sms_account_alerts',
+  'sms_feedback_surveys',
+  'sms_internal_alerts',
+]);
+
+function trialTemplateId() {
+  const t = env('TWILIO_TRIAL_TEMPLATE') || 'sms_delivery_updates';
+  return TRIAL_TEMPLATES.has(t) ? t : 'sms_delivery_updates';
+}
+
 function twilioConfigStatus() {
   return {
     hasAccountSid: Boolean(env('TWILIO_ACCOUNT_SID')),
@@ -107,6 +134,7 @@ function twilioConfigStatus() {
     hasApiKeySid: Boolean(env('TWILIO_API_KEY_SID')),
     hasApiKeySecret: Boolean(env('TWILIO_API_KEY_SECRET')),
     hasFromNumber: Boolean(env('TWILIO_FROM_NUMBER')),
+    trialMode: isTruthyEnv('TWILIO_TRIAL_MODE'),
   };
 }
 
@@ -125,7 +153,6 @@ function twilioAuthHeader() {
     );
   }
 
-  // API Key auth (SID starts with SK…) still needs Account SID for the URL
   if (apiKeySid && apiKeySecret) {
     const token = Buffer.from(`${apiKeySid}:${apiKeySecret}`).toString('base64');
     return { authorization: `Basic ${token}`, accountSid };
@@ -140,6 +167,52 @@ function twilioAuthHeader() {
       'OR both TWILIO_API_KEY_SID + TWILIO_API_KEY_SECRET in Vercel env, then Redeploy. ' +
       `Seen: ${JSON.stringify(status)}`
   );
+}
+
+function looksLikeTrialTemplateError(msg, code) {
+  const s = String(msg || '');
+  return (
+    /template/i.test(s) ||
+    /predefined/i.test(s) ||
+    /trial accounts can only/i.test(s) ||
+    code === 21656 ||
+    code === 21617
+  );
+}
+
+function looksLikeUnverifiedError(msg, code) {
+  const s = String(msg || '');
+  return (
+    code === 21219 ||
+    code === 14111 ||
+    /unverified/i.test(s) ||
+    /not a verified/i.test(s) ||
+    /verified caller/i.test(s)
+  );
+}
+
+async function createTwilioMessage({ authorization, accountSid, to, from, bodyText }) {
+  const params = new URLSearchParams();
+  params.set('To', to);
+  // Trial docs emphasize To + Body; From still works with a trial number when set
+  if (from) params.set('From', from);
+  params.set('Body', bodyText);
+
+  const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(
+    accountSid
+  )}/Messages.json`;
+
+  const twilioRes = await fetch(twilioUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: authorization,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: params.toString(),
+  });
+
+  const twilioData = await twilioRes.json().catch(() => ({}));
+  return { twilioRes, twilioData };
 }
 
 export default async function handler(req, res) {
@@ -167,65 +240,84 @@ export default async function handler(req, res) {
 
     const body = await readBody(req);
     const to = toE164(body.to);
-    const message = String(body.message || body.body || '').trim();
+    const customMessage = String(body.message || body.body || '').trim();
     const from = toE164(env('TWILIO_FROM_NUMBER'));
+    const forceTrial = isTruthyEnv('TWILIO_TRIAL_MODE');
+    const template = trialTemplateId();
 
     if (!to) {
       return json(res, 400, {
         error: 'Customer phone is missing or invalid. Use a full mobile number (e.g. 5551234567).',
       });
     }
-    if (!message) {
+    if (!customMessage && !forceTrial) {
       return json(res, 400, { error: 'Message text is empty.' });
     }
-    if (message.length > 1600) {
+    if (customMessage.length > 1600) {
       return json(res, 400, { error: 'Message is too long (max ~1600 characters).' });
     }
     if (!from) {
       return json(res, 500, {
-        error: 'TWILIO_FROM_NUMBER is not set on the server (your Twilio trial number in E.164, e.g. +15551234567).',
+        error:
+          'TWILIO_FROM_NUMBER is not set on the server (your Twilio trial number in E.164, e.g. +15551234567).',
       });
     }
 
     const { authorization, accountSid } = twilioAuthHeader();
-    if (!accountSid) {
-      return json(res, 500, { error: 'TWILIO_ACCOUNT_SID is not set on the server.' });
-    }
 
-    const params = new URLSearchParams();
-    params.set('To', to);
-    params.set('From', from);
-    params.set('Body', message);
+    // Trial: Body must be a template id, not custom shop text
+    const firstBody = forceTrial ? template : customMessage || template;
 
-    const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(
-      accountSid
-    )}/Messages.json`;
-
-    const twilioRes = await fetch(twilioUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: authorization,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: params.toString(),
+    let { twilioRes, twilioData } = await createTwilioMessage({
+      authorization,
+      accountSid,
+      to,
+      from,
+      bodyText: firstBody,
     });
 
-    const twilioData = await twilioRes.json().catch(() => ({}));
+    let usedTrialTemplate = forceTrial;
+    let bodySent = firstBody;
+
+    // Auto-fallback if they forgot TWILIO_TRIAL_MODE but still on trial
+    if (
+      !twilioRes.ok &&
+      !forceTrial &&
+      looksLikeTrialTemplateError(twilioData?.message, twilioData?.code)
+    ) {
+      const retry = await createTwilioMessage({
+        authorization,
+        accountSid,
+        to,
+        from,
+        bodyText: template,
+      });
+      twilioRes = retry.twilioRes;
+      twilioData = retry.twilioData;
+      usedTrialTemplate = true;
+      bodySent = template;
+    }
 
     if (!twilioRes.ok) {
       const twilioMsg =
         twilioData?.message ||
         twilioData?.error_message ||
         `Twilio error ${twilioRes.status}`;
-      // Trial accounts often fail until the destination is verified
+
+      let hint;
+      if (looksLikeUnverifiedError(twilioMsg, twilioData?.code)) {
+        hint =
+          'Twilio trial: add this phone under Console → Phone Numbers → Manage → Verified Caller IDs, enter the code, then try again.';
+      } else if (looksLikeTrialTemplateError(twilioMsg, twilioData?.code)) {
+        hint =
+          'Twilio trial only allows template ids (sms_delivery_updates, etc.). Set TWILIO_TRIAL_MODE=true on Vercel and Redeploy, or Upgrade your Twilio account for custom shop text.';
+      }
+
       return json(res, 502, {
         error: twilioMsg,
         code: twilioData?.code,
         moreInfo: twilioData?.more_info,
-        hint:
-          twilioData?.code === 21219 || /unverified|trial/i.test(String(twilioMsg))
-            ? 'Twilio trial: verify this phone number in Twilio Console → Phone Numbers → Verified Caller IDs, then try again.'
-            : undefined,
+        hint,
       });
     }
 
@@ -235,6 +327,11 @@ export default async function handler(req, res) {
       status: twilioData.status,
       to,
       from,
+      trialTemplate: usedTrialTemplate,
+      bodySent: usedTrialTemplate ? bodySent : undefined,
+      note: usedTrialTemplate
+        ? 'Twilio trial: sent a standard template (not your custom shop wording). Upgrade Twilio to send full status text with RO / vehicle / shop name.'
+        : undefined,
     });
   } catch (err) {
     console.error('send-sms', err);
