@@ -258,9 +258,41 @@ Scan pulls line items (parts/labor/sublet), part numbers, qty, and can fill empt
 
 ## 8. Deploy later (when ready)
 
-- Host the web app on **Firebase Hosting**, Netlify, or Cloudflare Pages  
+- Host the web app on **Vercel** (recommended — SMS API lives in `/api`)  
 - Customers open a URL on phone/tablet (no App Store required)  
 - “Add to Home Screen” for app-like icon  
+
+---
+
+## 9. Customer status SMS (Twilio)
+
+SMS is sent by a **server** function (`/api/send-sms`). Never put Twilio secrets in `VITE_*` vars (those ship to the browser).
+
+### Credentials to use
+
+| Twilio console name | Vercel env var |
+|---------------------|----------------|
+| Account SID (`AC…`) | `TWILIO_ACCOUNT_SID` |
+| Primary Auth Token | `TWILIO_AUTH_TOKEN` |
+| Trial / phone number | `TWILIO_FROM_NUMBER` (E.164, e.g. `+15551234567`) |
+
+Optional instead of Auth Token: `TWILIO_API_KEY_SID` + `TWILIO_API_KEY_SECRET`.  
+Also ensure `VITE_FIREBASE_API_KEY` (or `FIREBASE_WEB_API_KEY`) is set so the API can verify the signed-in user.
+
+### Vercel
+
+1. Project → **Settings → Environment Variables**  
+2. Add the three Twilio vars (Production + Preview)  
+3. **Redeploy** after saving  
+4. Master Control → shop → turn on **Customer status texts (SMS)**  
+5. Pick **Text customer on these statuses**  
+6. Job: phone + **Allow text updates** → change status or **Text current status now**
+
+### Twilio trial limits
+
+- You can only text **Verified Caller IDs** until you upgrade.  
+- Console → Phone Numbers → **Verified Caller IDs** → add your cell, enter the code.  
+- After 30 days, upgrade Twilio or buy a permanent number and update `TWILIO_FROM_NUMBER`.
 
 ---
 

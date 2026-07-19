@@ -10,6 +10,7 @@ export function buildJobSummary(job, companyName = '') {
   lines.push(`Customer: ${job.customerName || '—'}`);
   if (job.customerEmail) lines.push(`Email:    ${job.customerEmail}`);
   if (job.customerPhone) lines.push(`Phone:    ${job.customerPhone}`);
+  if (job.allowSmsUpdates) lines.push('Text updates: allowed');
   if (job.allowEmailUpdates) lines.push('Email updates: allowed');
   lines.push(`Vehicle:  ${job.vehicle || '—'}`);
   if (job.damageSummary) lines.push(`Damage:   ${job.damageSummary}`);

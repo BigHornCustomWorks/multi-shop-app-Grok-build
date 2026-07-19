@@ -15,6 +15,7 @@ import {
   X,
   Check,
   FileImage,
+  MessageSquare,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -41,6 +42,11 @@ import {
   invoiceJsonToParts,
   invoiceJsonToJobPatches,
 } from '../lib/invoiceScan';
+import {
+  buildStatusSms,
+  sendStatusSms,
+  shouldNotifyCustomerOnSms,
+} from '../lib/sms';
 
 export default function JobDetail({ job, onBack }) {
   const { company, user, profile } = useAuth();
@@ -66,6 +72,8 @@ export default function JobDetail({ job, onBack }) {
   const [reqBusy, setReqBusy] = useState(false);
   const [reqMsg, setReqMsg] = useState('');
   const [reqOpen, setReqOpen] = useState(false);
+  const [smsBusy, setSmsBusy] = useState(false);
+  const [smsMsg, setSmsMsg] = useState('');
   /** Always-mounted file inputs (must not live only inside Parts tab) */
   const scanFileRef = useRef(null);
   const scanCameraRef = useRef(null);
@@ -82,6 +90,8 @@ export default function JobDetail({ job, onBack }) {
   const returnReasons = settings.returnReasons || [];
   const technicians = settings.technicians || [];
   const scannerEnabled = Boolean(company?.features?.invoiceScanner);
+  const smsEnabled = Boolean(company?.features?.customerStatusSms);
+  const shopPhone = settings.shopPhone || company?.contactPhone || '';
 
   useEffect(() => {
     // Merge defaults so older jobs still show new fields
@@ -97,10 +107,13 @@ export default function JobDetail({ job, onBack }) {
       customerEmail: job?.customerEmail || '',
       customerPhone: job?.customerPhone || '',
       allowEmailUpdates: Boolean(job?.allowEmailUpdates),
+      allowSmsUpdates: Boolean(job?.allowSmsUpdates),
+      smsLog: Array.isArray(job?.smsLog) ? job.smsLog : [],
     });
     setSelectedPartIds([]);
     setBulkLocation('');
     setSection('info');
+    setSmsMsg('');
   }, [job?.id]);
 
   useEffect(() => {
@@ -180,6 +193,127 @@ export default function JobDetail({ job, onBack }) {
   const update = (field, val) => {
     const next = { ...form, [field]: val };
     persist(next);
+  };
+
+  const appendSmsLog = (entry, baseForm = form) => {
+    const log = [{ ...entry, id: generateId() }, ...(baseForm.smsLog || [])].slice(0, 20);
+    const next = { ...baseForm, smsLog: log };
+    persist(next);
+    return next;
+  };
+
+  const textCustomerStatus = async (statusOverride, { manual = false } = {}) => {
+    if (!smsEnabled && !manual) return { skipped: true };
+    const status = statusOverride || form.repairStatus;
+    const phone = form.customerPhone;
+    if (!String(phone || '').replace(/\D/g, '').match(/\d{10,}/)) {
+      throw new Error('Add a valid customer phone number first.');
+    }
+    if (!form.allowSmsUpdates && !manual) {
+      throw new Error('Customer has not opted in to text updates on this job.');
+    }
+    if (!form.allowSmsUpdates && manual) {
+      const ok = window.confirm(
+        'This customer has not checked “Allow text updates.” Send a status text anyway?\n\nOnly do this if they agreed verbally.'
+      );
+      if (!ok) return { cancelled: true };
+    }
+
+    const message = buildStatusSms({
+      shopName: company?.name,
+      vehicle: form.vehicle,
+      roNumber: form.roNumber,
+      status,
+      shopPhone,
+    });
+
+    setSmsBusy(true);
+    setSmsMsg('');
+    try {
+      const result = await sendStatusSms({ to: phone, message });
+      appendSmsLog({
+        at: Date.now(),
+        status,
+        to: result.to || phone,
+        ok: true,
+        sid: result.sid || '',
+        error: '',
+        manual,
+      });
+      setSmsMsg('Text sent.');
+      setTimeout(() => setSmsMsg(''), 4000);
+      return { ok: true, result };
+    } catch (err) {
+      appendSmsLog({
+        at: Date.now(),
+        status,
+        to: phone,
+        ok: false,
+        sid: '',
+        error: err.message || 'Failed',
+        manual,
+      });
+      setSmsMsg(err.message || 'Text failed');
+      throw err;
+    } finally {
+      setSmsBusy(false);
+    }
+  };
+
+  const onRepairStatusChange = async (newStatus) => {
+    const prev = form.repairStatus;
+    const next = { ...form, repairStatus: newStatus };
+    await persist(next);
+    if (newStatus === prev) return;
+    if (shouldNotifyCustomerOnSms(next, company, newStatus)) {
+      try {
+        // Use next form state for phone/opt-in
+        const message = buildStatusSms({
+          shopName: company?.name,
+          vehicle: next.vehicle,
+          roNumber: next.roNumber,
+          status: newStatus,
+          shopPhone,
+        });
+        setSmsBusy(true);
+        setSmsMsg('');
+        const result = await sendStatusSms({ to: next.customerPhone, message });
+        const log = [
+          {
+            id: generateId(),
+            at: Date.now(),
+            status: newStatus,
+            to: result.to || next.customerPhone,
+            ok: true,
+            sid: result.sid || '',
+            error: '',
+            manual: false,
+          },
+          ...(next.smsLog || []),
+        ].slice(0, 20);
+        await persist({ ...next, smsLog: log });
+        setSmsMsg('Status text sent to customer.');
+        setTimeout(() => setSmsMsg(''), 4000);
+      } catch (err) {
+        const log = [
+          {
+            id: generateId(),
+            at: Date.now(),
+            status: newStatus,
+            to: next.customerPhone,
+            ok: false,
+            sid: '',
+            error: err.message || 'Failed',
+            manual: false,
+          },
+          ...(next.smsLog || []),
+        ].slice(0, 20);
+        await persist({ ...next, smsLog: log });
+        setSmsMsg(err.message || 'Auto text failed');
+      } finally {
+        setSmsBusy(false);
+      }
+    }
   };
 
   const returningParts = (form.parts || []).filter((p) => p.isReturning);
@@ -566,8 +700,26 @@ export default function JobDetail({ job, onBack }) {
                   placeholder="(555) 555-5555"
                   autoComplete="off"
                 />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Mobile number for status texts (US: 10 digits is fine).
+                </p>
               </Field>
-              <div className="lg:col-span-2">
+              <div className="lg:col-span-2 space-y-2">
+                <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 accent-blue-600"
+                    checked={Boolean(form.allowSmsUpdates)}
+                    onChange={(e) => update('allowSmsUpdates', e.target.checked)}
+                  />
+                  <span>
+                    <span className="text-sm font-bold block">Allow text updates</span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                      Customer opts in to status SMS (default off). Required for auto texts when
+                      Master Control has SMS enabled and this status is on the notify list.
+                    </span>
+                  </span>
+                </label>
                 <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/50 cursor-pointer">
                   <input
                     type="checkbox"
@@ -578,8 +730,8 @@ export default function JobDetail({ job, onBack }) {
                   <span>
                     <span className="text-sm font-bold block">Allow email updates</span>
                     <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                      Customer opts in to status emails (default off). Only sends when this shop has
-                      email updates enabled and the status is on the shop’s notify list.
+                      Reserved for future email. Share via the share button still uses your device
+                      mail app.
                     </span>
                   </span>
                 </label>
@@ -608,7 +760,8 @@ export default function JobDetail({ job, onBack }) {
                 <select
                   className="field font-bold"
                   value={form.repairStatus || repairStatuses[0] || ''}
-                  onChange={(e) => update('repairStatus', e.target.value)}
+                  onChange={(e) => onRepairStatusChange(e.target.value)}
+                  disabled={smsBusy}
                 >
                   {repairStatuses.map((s) => (
                     <option key={s} value={s}>
@@ -616,9 +769,15 @@ export default function JobDetail({ job, onBack }) {
                     </option>
                   ))}
                 </select>
-                {shouldNotifyCustomerOnStatus(form, company, form.repairStatus) && (
+                {shouldNotifyCustomerOnSms(form, company, form.repairStatus) && (
                   <p className="text-[10px] text-emerald-700 dark:text-emerald-300 font-semibold mt-1.5">
-                    Ready for customer email when auto-send is live (opt-in + notify list + upgrade).
+                    Auto text is armed for this status (opt-in + phone + Master Control SMS + notify
+                    list).
+                  </p>
+                )}
+                {shouldNotifyCustomerOnStatus(form, company, form.repairStatus) && (
+                  <p className="text-[10px] text-slate-500 font-semibold mt-1">
+                    Email notify list matched (email send not enabled yet).
                   </p>
                 )}
               </Field>
@@ -636,6 +795,75 @@ export default function JobDetail({ job, onBack }) {
                   ))}
                 </select>
               </Field>
+            </div>
+
+            {/* Manual status text */}
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+              <div className="section-title mb-0">
+                <MessageSquare size={14} /> Text customer
+              </div>
+              {!smsEnabled ? (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  SMS is off for this shop. Turn on <b>Customer status texts</b> in Master Control,
+                  pick notify statuses, and set Twilio env vars on Vercel.
+                </p>
+              ) : (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Sends from your Twilio trial number. Message includes shop name, vehicle, RO,
+                  status, and Reply STOP. Trial accounts only text <b>verified</b> numbers in Twilio.
+                </p>
+              )}
+              <button
+                type="button"
+                disabled={smsBusy || !smsEnabled || !form.customerPhone}
+                onClick={async () => {
+                  try {
+                    await textCustomerStatus(form.repairStatus, { manual: true });
+                  } catch (err) {
+                    alert(err.message || 'Could not send text');
+                  }
+                }}
+                className="w-full py-3 rounded-xl text-white text-xs font-black uppercase shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
+                style={{ backgroundColor: primary }}
+              >
+                {smsBusy ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <MessageSquare size={16} />
+                )}
+                Text current status now
+              </button>
+              {smsMsg && (
+                <p
+                  className={`text-xs font-bold ${
+                    /fail|error|invalid|missing|not/i.test(smsMsg) && !/sent/i.test(smsMsg)
+                      ? 'text-red-600 dark:text-red-400'
+                      : 'text-emerald-700 dark:text-emerald-300'
+                  }`}
+                >
+                  {smsMsg}
+                </p>
+              )}
+              {(form.smsLog || []).length > 0 && (
+                <div className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-slate-700">
+                  <div className="text-[10px] font-black uppercase text-slate-400">Recent texts</div>
+                  {(form.smsLog || []).slice(0, 5).map((row) => (
+                    <div
+                      key={row.id}
+                      className="text-[10px] text-slate-500 dark:text-slate-400 flex flex-wrap gap-x-2"
+                    >
+                      <span>{row.at ? new Date(row.at).toLocaleString() : ''}</span>
+                      <span className={row.ok ? 'text-emerald-600 font-bold' : 'text-red-500 font-bold'}>
+                        {row.ok ? 'Sent' : 'Failed'}
+                      </span>
+                      <span className="truncate">{row.status}</span>
+                      {!row.ok && row.error && (
+                        <span className="text-red-400 w-full">{row.error}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {hasPendingReturns && (

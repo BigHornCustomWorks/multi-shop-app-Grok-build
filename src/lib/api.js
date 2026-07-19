@@ -492,6 +492,8 @@ export function emptyJob(defaults = {}) {
     customerEmail: '',
     customerPhone: '',
     allowEmailUpdates: false,
+    /** Customer opted in to status text messages (default off) */
+    allowSmsUpdates: false,
     vehicle: '',
     /** Short damage summary shown on dashboard cards */
     damageSummary: '',
@@ -504,6 +506,8 @@ export function emptyJob(defaults = {}) {
     parts: [],
     notes: [],
     photos: [],
+    /** Recent SMS attempts { id, at, status, to, ok, error, sid } */
+    smsLog: [],
     isArchived: false,
   };
 }
@@ -529,7 +533,7 @@ export function formatDaysAtShop(arrivalDate) {
 }
 
 /**
- * Whether a status change should eventually email the customer (V1 rules; send is server-side later).
+ * Whether a status change should email the customer (reserved; SMS is live first).
  */
 export function shouldNotifyCustomerOnStatus(job, company, newStatus) {
   if (!company?.features?.customerStatusEmails) return false;
@@ -540,6 +544,9 @@ export function shouldNotifyCustomerOnStatus(job, company, newStatus) {
   if (!list.length) return false;
   return list.includes(newStatus);
 }
+
+/** Re-export SMS helper so callers can import from api if preferred */
+export { shouldNotifyCustomerOnSms } from './sms';
 
 export function emptyPart(defaults = {}) {
   return {

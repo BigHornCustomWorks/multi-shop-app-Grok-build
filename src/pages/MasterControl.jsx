@@ -201,6 +201,7 @@ export default function MasterControl() {
                   <div className="text-[10px] text-slate-400">
                     {c.active === false ? 'Inactive' : 'Active'}
                     {c.features?.invoiceScanner ? ' · AI scan' : ''}
+                    {c.features?.customerStatusSms ? ' · SMS' : ''}
                   </div>
                 </div>
               </button>
@@ -259,6 +260,12 @@ function ShopEditor({ company, onSaved }) {
   const [customerStatusEmails, setCustomerStatusEmails] = useState(
     Boolean(company.features?.customerStatusEmails)
   );
+  const [customerStatusSms, setCustomerStatusSms] = useState(
+    Boolean(company.features?.customerStatusSms)
+  );
+  const [shopPhone, setShopPhone] = useState(
+    company.settings?.shopPhone || company.contactPhone || ''
+  );
   const [active, setActive] = useState(company.active !== false);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -291,11 +298,16 @@ function ShopEditor({ company, onSaved }) {
           statusPillColor,
           locationPillColor,
         },
-        settings,
+        settings: {
+          ...settings,
+          shopPhone: shopPhone.trim(),
+        },
+        contactPhone: shopPhone.trim(),
         features: {
           ...(company.features || {}),
           invoiceScanner,
           customerStatusEmails,
+          customerStatusSms,
         },
         active,
         allowSelfServeSettings: false,
@@ -456,22 +468,40 @@ function ShopEditor({ company, onSaved }) {
           </div>
           <div className="flex flex-col justify-end gap-2">
             <ToggleRow
-              label="Customer status emails (upgrade)"
+              label="Customer status texts (SMS)"
+              on={customerStatusSms}
+              onToggle={() => setCustomerStatusSms((v) => !v)}
+            />
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              When on: jobs with text opt-in + phone get auto SMS for statuses checked below (and a
+              manual “Text now” on the job). Requires Twilio env vars on Vercel.
+            </p>
+            <ToggleRow
+              label="Customer status emails (future)"
               on={customerStatusEmails}
               onToggle={() => setCustomerStatusEmails((v) => !v)}
             />
-            <p className="text-[10px] text-slate-400 leading-relaxed">
-              When on: jobs with opt-in + email can get auto updates for statuses checked below.
-              Sending is wired in a later step (noreply + Reply-To shop).
-            </p>
           </div>
         </div>
 
-        <div className="mt-4 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
-          <div className="section-title mb-2">Email customer on these statuses</div>
+        <div className="mt-4 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+          <div>
+            <label className="lbl">Shop phone (shown in customer texts)</label>
+            <input
+              type="tel"
+              className="field font-bold"
+              value={shopPhone}
+              onChange={(e) => setShopPhone(e.target.value)}
+              placeholder="(555) 555-5555"
+            />
+            <p className="text-[10px] text-slate-400 mt-1">
+              Customers can call this number — texts still send from your Twilio number.
+            </p>
+          </div>
+          <div className="section-title mb-2">Text customer on these statuses</div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3">
-            Shop-picked list. Only these repair statuses trigger a customer email (when upgrade is
-            on and the job has opt-in).
+            Only these repair statuses auto-text the customer (when SMS is on, job has opt-in +
+            phone). Use sparingly — e.g. Waiting for Parts, Ready / Customer Contacted.
           </p>
           <div className="flex flex-wrap gap-2">
             {(settings.repairStatuses || []).map((s) => {

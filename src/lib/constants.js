@@ -102,15 +102,21 @@ export function defaultCompanySettings() {
     partLocations: [...DEFAULT_PART_LOCATIONS],
     returnReasons: [...DEFAULT_RETURN_REASONS],
     technicians: [],
-    /** Status values that may trigger customer email (when upgrade is on) */
+    /**
+     * Repair statuses that may trigger a customer SMS (when SMS feature is on
+     * and the job has opt-in + a phone number).
+     */
     notifyStatuses: [],
+    /** Shop phone shown in customer texts (optional) */
+    shopPhone: '',
   };
 }
 
 export function defaultCompanyFeatures() {
   return {
     invoiceScanner: false, // paid upgrade
-    customerStatusEmails: false, // auto status emails to customers
+    customerStatusEmails: false, // reserved for future email
+    customerStatusSms: false, // status texts via Twilio
   };
 }
 
