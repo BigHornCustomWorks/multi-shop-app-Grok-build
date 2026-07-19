@@ -130,34 +130,41 @@ export default function Dashboard({ onOpenJob, onOpenSettings }) {
   return (
     <div className="app-shell">
       <div className="app-frame app-frame--wide flex flex-col relative lg:shadow-sm">
-      <header className="app-header sticky top-0 z-20">
-        <div className="app-page-pad py-4 lg:py-5">
-        <div className="flex justify-between items-center mb-4 gap-2">
-          <div className="flex items-center gap-3 min-w-0">
+      {/*
+        Mobile: header scrolls away with the page (not sticky) + compact spacing
+        Desktop (lg+): sticky full toolbar
+      */}
+      <header className="app-header z-20 lg:sticky lg:top-0">
+        <div className="app-page-pad py-2 lg:py-4">
+        {/* Title row — compact on phone */}
+        <div className="flex justify-between items-center mb-2 lg:mb-4 gap-2">
+          <div className="flex items-center gap-2 lg:gap-3 min-w-0">
             {company?.branding?.logoUrl ? (
               <img
                 src={company.branding.logoUrl}
                 alt=""
-                className="h-11 w-11 lg:h-12 lg:w-12 rounded-2xl object-cover shrink-0 border border-slate-200 dark:border-slate-600 shadow-sm"
+                className="h-8 w-8 lg:h-12 lg:w-12 rounded-lg lg:rounded-2xl object-cover shrink-0 border border-slate-200 dark:border-slate-600 shadow-sm"
               />
             ) : (
               <div
-                className="h-11 w-11 lg:h-12 lg:w-12 rounded-2xl flex items-center justify-center text-white font-black shrink-0 shadow-md"
+                className="h-8 w-8 lg:h-12 lg:w-12 rounded-lg lg:rounded-2xl flex items-center justify-center text-white text-sm lg:text-base font-black shrink-0 shadow-md"
                 style={{ backgroundColor: primary }}
               >
                 {shopName.charAt(0).toUpperCase()}
               </div>
             )}
             <div className="min-w-0">
-              <h1 className="font-black text-lg lg:text-xl tracking-tight truncate">{shopName}</h1>
-              <p className="text-[10px] lg:text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider truncate">
+              <h1 className="font-black text-base lg:text-xl tracking-tight truncate leading-tight">
+                {shopName}
+              </h1>
+              <p className="hidden sm:block text-[10px] lg:text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider truncate">
                 {APP_NAME}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-0.5 lg:gap-1.5 shrink-0">
             <span
-              className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${
+              className={`text-[9px] lg:text-[10px] font-bold px-1.5 lg:px-2.5 py-0.5 lg:py-1 rounded-full ${
                 dbStatus === 'online'
                   ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'
                   : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
@@ -168,36 +175,33 @@ export default function Dashboard({ onOpenJob, onOpenSettings }) {
             <button
               type="button"
               onClick={onOpenSettings}
-              className="p-2.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+              className="p-1.5 lg:p-2.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg lg:rounded-xl transition-colors"
               title="Account & appearance"
             >
-              <Settings size={20} />
+              <Settings size={18} className="lg:w-5 lg:h-5" />
             </button>
             <button
               type="button"
               onClick={logout}
-              className="p-2.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+              className="p-1.5 lg:p-2.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg lg:rounded-xl transition-colors"
               title="Sign out"
             >
-              <LogOut size={20} />
+              <LogOut size={18} className="lg:w-5 lg:h-5" />
             </button>
           </div>
         </div>
 
-        {/* Toolbar:
-            mobile  = filter → search → active/archived → New job
-            desktop = filter | search | New job | active/archived  (one row) */}
-        <div className="flex flex-col lg:flex-row lg:items-end gap-3 lg:gap-3">
-          {/* Job filter — saved on user account */}
+        {/* Toolbar — compact stack on mobile, row on desktop */}
+        <div className="flex flex-col lg:flex-row lg:items-end gap-1.5 lg:gap-3">
           <div className="lg:w-56 xl:w-64 shrink-0">
-            <label className="lbl flex items-center gap-1.5 mb-1.5">
-              <Filter size={12} /> Show jobs
+            <label className="lbl flex items-center gap-1 mb-0.5 lg:mb-1.5 text-[9px] lg:text-[10px]">
+              <Filter size={11} /> Show jobs
             </label>
             <div className="relative">
               <select
                 value={jobFilter}
                 onChange={(e) => onFilterChange(e.target.value)}
-                className="field text-sm font-bold py-2.5 pr-10 appearance-none cursor-pointer"
+                className="field text-xs lg:text-sm font-bold py-2 lg:py-2.5 pr-9 appearance-none cursor-pointer"
                 style={{ borderColor: jobFilter !== 'all' ? primary : undefined }}
               >
                 {filterOptions.map((o) => (
@@ -208,11 +212,11 @@ export default function Dashboard({ onOpenJob, onOpenSettings }) {
               </select>
               <Filter
                 size={14}
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400"
               />
             </div>
             {jobFilter !== 'all' && (
-              <p className="mt-1.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+              <p className="mt-1 text-[10px] lg:text-[11px] font-semibold text-slate-500 dark:text-slate-400">
                 Showing {filterLabel(jobFilter).toLowerCase()}
                 {' · '}
                 <button
@@ -223,28 +227,26 @@ export default function Dashboard({ onOpenJob, onOpenSettings }) {
                 >
                   Show all
                 </button>
-                <span className="font-medium opacity-80"> (saved)</span>
               </p>
             )}
           </div>
 
           <div className="relative flex-1 min-w-0">
             <Search
-              size={16}
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10"
+              size={15}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10"
               aria-hidden
             />
             <input
               type="text"
-              placeholder="Search customer, RO, vehicle…"
-              className="field py-2.5 text-sm"
-              style={{ paddingLeft: '2.75rem', paddingRight: '1rem' }}
+              placeholder="Search…"
+              className="field py-2 lg:py-2.5 text-xs lg:text-sm"
+              style={{ paddingLeft: '2.35rem', paddingRight: '0.75rem' }}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
 
-          {/* Desktop: New job between search and Active/Archived */}
           <button
             type="button"
             onClick={createJob}
@@ -255,13 +257,13 @@ export default function Dashboard({ onOpenJob, onOpenSettings }) {
             New job
           </button>
 
-          <div className="flex gap-1 p-1 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 lg:w-52 xl:w-56 shrink-0">
+          <div className="flex gap-1 p-0.5 lg:p-1 rounded-lg lg:rounded-xl bg-slate-100/80 dark:bg-slate-800/80 lg:w-52 xl:w-56 shrink-0">
             {['active', 'archived'].map((t) => (
               <button
                 key={t}
                 type="button"
                 onClick={() => setTab(t)}
-                className={`flex-1 py-2 text-xs font-bold uppercase tracking-widest rounded-lg transition-all ${
+                className={`flex-1 py-1.5 lg:py-2 text-[10px] lg:text-xs font-bold uppercase tracking-widest rounded-md lg:rounded-lg transition-all ${
                   tab === t
                     ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-900 dark:text-white'
                     : 'text-slate-500 dark:text-slate-400'
@@ -273,21 +275,20 @@ export default function Dashboard({ onOpenJob, onOpenSettings }) {
             ))}
           </div>
 
-          {/* Mobile: New job under Active / Archived */}
           <button
             type="button"
             onClick={createJob}
-            className="lg:hidden w-full flex items-center justify-center gap-2 text-white rounded-xl shadow-md active:scale-[0.98] transition-transform px-5 py-3 font-black text-xs uppercase tracking-widest"
+            className="lg:hidden w-full flex items-center justify-center gap-1.5 text-white rounded-lg shadow-md active:scale-[0.98] transition-transform px-4 py-2 font-black text-[11px] uppercase tracking-widest"
             style={{ backgroundColor: primary }}
           >
-            <Plus size={16} strokeWidth={2.5} />
+            <Plus size={15} strokeWidth={2.5} />
             New job
           </button>
         </div>
         </div>
       </header>
 
-      <main className="flex-1 app-page-pad py-4 pb-8">
+      <main className="flex-1 app-page-pad py-2 lg:py-4 pb-6 lg:pb-8">
         {filtered.length === 0 ? (
           <div className="app-card text-center py-16 px-6 max-w-lg mx-auto">
             <div className="mx-auto mb-4 h-14 w-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
