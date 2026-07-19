@@ -64,7 +64,8 @@ export function buildJobSummary(job, companyName = '') {
     lines.push('-'.repeat(40));
     photos.forEach((p, i) => {
       const when = p.createdAt ? new Date(p.createdAt).toLocaleString() : '';
-      lines.push(`${i + 1}. ${when || 'Photo'}`);
+      const cap = (p.caption || '').trim();
+      lines.push(`${i + 1}. ${when || 'Photo'}${cap ? ` — ${cap}` : ''}`);
       if (p.url) lines.push(`   ${p.url}`);
     });
     lines.push('');

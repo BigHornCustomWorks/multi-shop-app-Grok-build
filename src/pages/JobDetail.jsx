@@ -65,6 +65,7 @@ export default function JobDetail({ job, onBack }) {
   const [reqPhotoFile, setReqPhotoFile] = useState(null);
   const [reqBusy, setReqBusy] = useState(false);
   const [reqMsg, setReqMsg] = useState('');
+  const [reqOpen, setReqOpen] = useState(false);
   /** Always-mounted file inputs (must not live only inside Parts tab) */
   const scanFileRef = useRef(null);
   const scanCameraRef = useRef(null);
@@ -103,17 +104,18 @@ export default function JobDetail({ job, onBack }) {
   }, [job?.id]);
 
   useEffect(() => {
-    if (!lightbox && !shareOpen && !scanPickerOpen) return undefined;
+    if (!lightbox && !shareOpen && !scanPickerOpen && !reqOpen) return undefined;
     const onKey = (e) => {
       if (e.key === 'Escape') {
         setLightbox(null);
         setShareOpen(false);
         setScanPickerOpen(false);
+        setReqOpen(false);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [lightbox, shareOpen, scanPickerOpen]);
+  }, [lightbox, shareOpen, scanPickerOpen, reqOpen]);
 
   const shopName = company?.name || '';
   const summaryText = buildJobSummary(form, shopName);
@@ -232,6 +234,63 @@ export default function JobDetail({ job, onBack }) {
       'photos',
       (form.photos || []).filter((p) => p.id !== photo.id)
     );
+  };
+
+  const updatePhotoCaption = (photoId, caption) => {
+    const photos = (form.photos || []).map((p) =>
+      p.id === photoId ? { ...p, caption } : p
+    );
+    update('photos', photos);
+    if (lightbox?.id === photoId) {
+      setLightbox((prev) => (prev ? { ...prev, caption } : prev));
+    }
+  };
+
+  const submitPartRequest = async () => {
+    if (!company?.id || !form.id) return;
+    setReqBusy(true);
+    setReqMsg('');
+    try {
+      const requestId = generateId();
+      let photos = [];
+      if (reqPhotoFile) {
+        const photo = await uploadPartRequestPhoto(company.id, requestId, reqPhotoFile, {
+          createdByName: profile?.displayName || user?.email || '',
+          createdByUid: user?.uid || '',
+        });
+        photos = [photo];
+      }
+      await createPartRequest(company.id, {
+        id: requestId,
+        jobId: form.id,
+        jobCustomerName: form.customerName || '',
+        jobVehicle: form.vehicle || '',
+        jobRo: form.roNumber || '',
+        description: reqDesc,
+        partNumber: reqPartNumber,
+        quantity: reqQty,
+        urgency: reqUrgency,
+        note: reqNote,
+        photos,
+        createdByUid: user?.uid || '',
+        createdByName: profile?.displayName || user?.email || '',
+      });
+      setReqDesc('');
+      setReqPartNumber('');
+      setReqQty(1);
+      setReqUrgency('normal');
+      setReqNote('');
+      setReqPhotoFile(null);
+      setReqMsg('Request sent to parts.');
+      setTimeout(() => {
+        setReqMsg('');
+        setReqOpen(false);
+      }, 1200);
+    } catch (err) {
+      alert(err.message || 'Could not send request');
+    } finally {
+      setReqBusy(false);
+    }
   };
 
   const openScanPicker = () => {
@@ -426,7 +485,11 @@ export default function JobDetail({ job, onBack }) {
         </div>
       </div>
 
-      <div className="app-page-pad py-4 space-y-4 pb-24">
+      <div
+        className={`app-page-pad py-4 space-y-4 ${
+          section === 'info' ? 'pb-28' : 'pb-24'
+        }`}
+      >
         {section === 'info' && (
           <div className="app-card p-5 lg:p-6 space-y-4 lg:max-w-none">
             {scannerEnabled && (
@@ -582,158 +645,6 @@ export default function JobDetail({ job, onBack }) {
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={tryArchiveToggle}
-              disabled={!form.isArchived && hasPendingReturns}
-              className={`w-full py-3.5 rounded-xl text-xs font-black uppercase border transition-colors ${
-                !form.isArchived && hasPendingReturns
-                  ? 'border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 text-red-400 cursor-not-allowed'
-                  : 'border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700'
-              }`}
-            >
-              {form.isArchived ? 'Unarchive job' : 'Archive job'}
-            </button>
-
-            {/* Part request → Parts Manager inbox */}
-            <div className="pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
-              <div className="section-title">
-                <Package size={14} /> Request a part
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                Sends a request to the parts manager / shop admin with optional photo (compressed
-                before upload).
-              </p>
-              <Field label="What do you need?">
-                <input
-                  className="field text-sm font-bold"
-                  value={reqDesc}
-                  onChange={(e) => setReqDesc(e.target.value)}
-                  placeholder="e.g. Left fog lamp assembly"
-                />
-              </Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Part # (optional)">
-                  <input
-                    className="field text-xs font-mono font-bold"
-                    value={reqPartNumber}
-                    onChange={(e) => setReqPartNumber(e.target.value)}
-                    placeholder="OEM / vendor #"
-                  />
-                </Field>
-                <Field label="Qty">
-                  <input
-                    type="number"
-                    min={1}
-                    className="field text-sm font-bold text-center"
-                    value={reqQty}
-                    onChange={(e) => setReqQty(e.target.value)}
-                  />
-                </Field>
-              </div>
-              <Field label="Urgency">
-                <select
-                  className="field text-sm font-bold"
-                  value={reqUrgency}
-                  onChange={(e) => setReqUrgency(e.target.value)}
-                >
-                  <option value="normal">Normal</option>
-                  <option value="urgent">Urgent</option>
-                </select>
-              </Field>
-              <Field label="Notes for parts">
-                <textarea
-                  className="field text-sm min-h-[64px]"
-                  value={reqNote}
-                  onChange={(e) => setReqNote(e.target.value)}
-                  placeholder="Color, side, vendor preference…"
-                />
-              </Field>
-              <div className="flex flex-wrap gap-2 items-center">
-                <button
-                  type="button"
-                  onClick={() => reqPhotoRef.current?.click()}
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 text-xs font-bold"
-                >
-                  <Camera size={16} />
-                  {reqPhotoFile ? 'Change photo' : 'Add photo'}
-                </button>
-                {reqPhotoFile && (
-                  <span className="text-[11px] text-slate-500 truncate max-w-[12rem]">
-                    {reqPhotoFile.name}
-                  </span>
-                )}
-                <input
-                  ref={reqPhotoRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={(e) => setReqPhotoFile(e.target.files?.[0] || null)}
-                />
-              </div>
-              {reqMsg && (
-                <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">{reqMsg}</p>
-              )}
-              <button
-                type="button"
-                disabled={reqBusy}
-                onClick={async () => {
-                  if (!company?.id || !form.id) return;
-                  setReqBusy(true);
-                  setReqMsg('');
-                  try {
-                    const requestId = generateId();
-                    let photos = [];
-                    if (reqPhotoFile) {
-                      const photo = await uploadPartRequestPhoto(
-                        company.id,
-                        requestId,
-                        reqPhotoFile,
-                        {
-                          createdByName: profile?.displayName || user?.email || '',
-                          createdByUid: user?.uid || '',
-                        }
-                      );
-                      photos = [photo];
-                    }
-                    await createPartRequest(company.id, {
-                      id: requestId,
-                      jobId: form.id,
-                      jobCustomerName: form.customerName || '',
-                      jobVehicle: form.vehicle || '',
-                      jobRo: form.roNumber || '',
-                      description: reqDesc,
-                      partNumber: reqPartNumber,
-                      quantity: reqQty,
-                      urgency: reqUrgency,
-                      note: reqNote,
-                      photos,
-                      createdByUid: user?.uid || '',
-                      createdByName: profile?.displayName || user?.email || '',
-                    });
-                    setReqDesc('');
-                    setReqPartNumber('');
-                    setReqQty(1);
-                    setReqUrgency('normal');
-                    setReqNote('');
-                    setReqPhotoFile(null);
-                    setReqMsg('Request sent to parts.');
-                    setTimeout(() => setReqMsg(''), 3000);
-                  } catch (err) {
-                    alert(err.message || 'Could not send request');
-                  } finally {
-                    setReqBusy(false);
-                  }
-                }}
-                className="w-full py-3.5 rounded-xl text-white text-xs font-black uppercase shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
-                style={{ backgroundColor: primary }}
-              >
-                {reqBusy ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
-                Send part request
-              </button>
-            </div>
-
             <div className="pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
               <div className="section-title">
                 <StickyNote size={14} /> Notes
@@ -775,11 +686,26 @@ export default function JobDetail({ job, onBack }) {
                 <p className="text-center text-xs text-slate-400 py-2">No notes yet — add one above.</p>
               )}
             </div>
+
+            {/* Spacer for fixed archive bar */}
+            <div className="h-4" aria-hidden />
           </div>
         )}
 
         {section === 'parts' && (
           <div className="space-y-3 max-w-4xl lg:max-w-none">
+            <button
+              type="button"
+              onClick={() => {
+                setReqMsg('');
+                setReqOpen(true);
+              }}
+              className="w-full py-3.5 rounded-2xl text-white font-black text-xs uppercase flex items-center justify-center gap-2 shadow-md active:scale-[0.99]"
+              style={{ backgroundColor: primary }}
+            >
+              <Package size={16} /> Request a part
+            </button>
+
             <div className="flex flex-col sm:flex-row gap-2">
               <button
                 type="button"
@@ -1052,9 +978,13 @@ export default function JobDetail({ job, onBack }) {
               className="hidden"
               onChange={onPhoto}
             />
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed px-0.5">
+              Tap a photo to enlarge. Add a short note under each photo (damage area, stage of repair,
+              etc.). Notes are included when you share the job.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
               {(form.photos || []).map((p) => (
-                <div key={p.id} className="app-card overflow-hidden p-0">
+                <div key={p.id} className="app-card overflow-hidden p-0 flex flex-col">
                   <button
                     type="button"
                     onClick={() => setLightbox(p)}
@@ -1063,21 +993,34 @@ export default function JobDetail({ job, onBack }) {
                   >
                     <img
                       src={p.url}
-                      alt=""
-                      className="w-full h-36 object-cover hover:opacity-95 transition-opacity"
+                      alt={p.caption || 'Job photo'}
+                      className="w-full h-40 object-cover hover:opacity-95 transition-opacity"
                     />
                   </button>
-                  <div className="p-2 flex justify-between items-center">
-                    <span className="text-[9px] text-slate-400 font-bold truncate">
-                      {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : ''}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => removePhoto(p)}
-                      className="text-red-400 p-1"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                  <div className="p-2.5 space-y-2 flex-1 flex flex-col">
+                    <div className="flex justify-between items-center gap-1">
+                      <span className="text-[9px] text-slate-400 font-bold truncate">
+                        {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : ''}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removePhoto(p)}
+                        className="text-red-400 p-1 shrink-0"
+                        title="Delete photo"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                    <label className="block">
+                      <span className="sr-only">Photo note</span>
+                      <textarea
+                        className="field text-xs min-h-[52px] py-1.5 resize-y"
+                        placeholder="Add note… e.g. LF fender before"
+                        value={p.caption || ''}
+                        onChange={(e) => updatePhotoCaption(p.id, e.target.value)}
+                        rows={2}
+                      />
+                    </label>
                   </div>
                 </div>
               ))}
@@ -1095,6 +1038,28 @@ export default function JobDetail({ job, onBack }) {
         )}
       </div>
 
+      {/* Archive locked to bottom of screen on Info tab */}
+      {section === 'info' && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-none">
+          <div className="app-frame app-frame--wide mx-auto pointer-events-auto">
+            <div className="app-page-pad pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 bg-gradient-to-t from-[var(--app-bg)] via-[var(--app-bg)] to-transparent">
+              <button
+                type="button"
+                onClick={tryArchiveToggle}
+                disabled={!form.isArchived && hasPendingReturns}
+                className={`w-full py-3.5 rounded-xl text-xs font-black uppercase border shadow-lg transition-colors ${
+                  !form.isArchived && hasPendingReturns
+                    ? 'border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 text-red-400 cursor-not-allowed'
+                    : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800'
+                }`}
+              >
+                {form.isArchived ? 'Unarchive job' : 'Archive job'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {lightbox && (
         <div
           className="fixed inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center p-4"
@@ -1106,23 +1071,155 @@ export default function JobDetail({ job, onBack }) {
           <button
             type="button"
             onClick={() => setLightbox(null)}
-            className="absolute top-4 right-4 text-white/90 bg-white/10 hover:bg-white/20 rounded-full px-4 py-2 text-xs font-black uppercase tracking-wider"
+            className="absolute top-4 right-4 text-white/90 bg-white/10 hover:bg-white/20 rounded-full px-4 py-2 text-xs font-black uppercase tracking-wider z-10"
           >
             Close
           </button>
           <img
             src={lightbox.url}
-            alt=""
-            className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
+            alt={lightbox.caption || 'Job photo'}
+            className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           />
-          <p className="text-white/60 text-[11px] font-bold mt-3 uppercase tracking-wider">
-            {lightbox.createdAt ? new Date(lightbox.createdAt).toLocaleString() : ''}
-            {lightbox.createdByName ? ` · ${lightbox.createdByName}` : ''}
-          </p>
-          <p className="text-white/40 text-[10px] mt-1">Tap outside photo to close</p>
+          <div
+            className="w-full max-w-md mt-3 space-y-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-white/60 text-[11px] font-bold uppercase tracking-wider text-center">
+              {lightbox.createdAt ? new Date(lightbox.createdAt).toLocaleString() : ''}
+              {lightbox.createdByName ? ` · ${lightbox.createdByName}` : ''}
+            </p>
+            <textarea
+              className="w-full rounded-xl bg-white/10 border border-white/20 text-white text-sm p-3 min-h-[64px] placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/30"
+              placeholder="Add a note for this photo…"
+              value={lightbox.caption || ''}
+              onChange={(e) => updatePhotoCaption(lightbox.id, e.target.value)}
+              rows={2}
+            />
+            <p className="text-white/40 text-[10px] text-center">Tap outside photo to close</p>
+          </div>
         </div>
       )}
+
+      {/* Part request modal (from Parts tab) */}
+      {reqOpen && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/50 dark:bg-black/70 flex items-end sm:items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Request a part"
+          onClick={() => !reqBusy && setReqOpen(false)}
+        >
+          <div
+            className="app-card w-full max-w-md p-5 space-y-3 shadow-2xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="font-black text-sm uppercase tracking-wide flex items-center gap-2">
+                <Package size={18} style={{ color: primary }} />
+                Request a part
+              </div>
+              <button
+                type="button"
+                onClick={() => !reqBusy && setReqOpen(false)}
+                className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Sends a request to the parts manager / shop admin with optional photo (compressed
+              before upload).
+            </p>
+            <Field label="What do you need?">
+              <input
+                className="field text-sm font-bold"
+                value={reqDesc}
+                onChange={(e) => setReqDesc(e.target.value)}
+                placeholder="e.g. Left fog lamp assembly"
+                autoFocus
+              />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Part # (optional)">
+                <input
+                  className="field text-xs font-mono font-bold"
+                  value={reqPartNumber}
+                  onChange={(e) => setReqPartNumber(e.target.value)}
+                  placeholder="OEM / vendor #"
+                />
+              </Field>
+              <Field label="Qty">
+                <input
+                  type="number"
+                  min={1}
+                  className="field text-sm font-bold text-center"
+                  value={reqQty}
+                  onChange={(e) => setReqQty(e.target.value)}
+                />
+              </Field>
+            </div>
+            <Field label="Urgency">
+              <select
+                className="field text-sm font-bold"
+                value={reqUrgency}
+                onChange={(e) => setReqUrgency(e.target.value)}
+              >
+                <option value="normal">Normal</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </Field>
+            <Field label="Notes for parts">
+              <textarea
+                className="field text-sm min-h-[64px]"
+                value={reqNote}
+                onChange={(e) => setReqNote(e.target.value)}
+                placeholder="Color, side, vendor preference…"
+              />
+            </Field>
+            <div className="flex flex-wrap gap-2 items-center">
+              <button
+                type="button"
+                onClick={() => reqPhotoRef.current?.click()}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 text-xs font-bold"
+              >
+                <Camera size={16} />
+                {reqPhotoFile ? 'Change photo' : 'Add photo'}
+              </button>
+              {reqPhotoFile && (
+                <span className="text-[11px] text-slate-500 truncate max-w-[12rem]">
+                  {reqPhotoFile.name}
+                </span>
+              )}
+            </div>
+            {reqMsg && (
+              <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                <Check size={14} /> {reqMsg}
+              </p>
+            )}
+            <button
+              type="button"
+              disabled={reqBusy || !reqDesc.trim()}
+              onClick={submitPartRequest}
+              className="w-full py-3.5 rounded-xl text-white text-xs font-black uppercase shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
+              style={{ backgroundColor: primary }}
+            >
+              {reqBusy ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
+              Send part request
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Always-mounted part-request photo input */}
+      <input
+        ref={reqPhotoRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => setReqPhotoFile(e.target.files?.[0] || null)}
+      />
 
       {/* Always mounted — file pickers must exist even on Info tab */}
       <input
