@@ -10,7 +10,13 @@ import {
   CalendarDays,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { subscribeJobs, saveJob, emptyJob, formatDaysAtShop } from '../lib/api';
+import {
+  subscribeJobs,
+  saveJob,
+  emptyJob,
+  formatDaysAtShop,
+  subscribeOpenPartRequestCount,
+} from '../lib/api';
 import { DEFAULT_BRANDING, pillStyle } from '../lib/constants';
 import { APP_NAME } from '../config';
 import PillSelect from '../components/PillSelect';
@@ -33,12 +39,13 @@ function filterLabel(filter) {
   return `${filter}'s jobs`;
 }
 
-export default function Dashboard({ onOpenJob, onOpenSettings }) {
-  const { company, profile, setJobFilter, logout } = useAuth();
+export default function Dashboard({ onOpenJob, onOpenSettings, onOpenParts }) {
+  const { company, profile, setJobFilter, logout, canManageParts } = useAuth();
   const [jobs, setJobs] = useState([]);
   const [tab, setTab] = useState('active');
   const [search, setSearch] = useState('');
   const [dbStatus, setDbStatus] = useState('connecting');
+  const [openPartsCount, setOpenPartsCount] = useState(0);
 
   const settings = company?.settings || {};
   const technicians = settings.technicians || [];
@@ -64,6 +71,15 @@ export default function Dashboard({ onOpenJob, onOpenSettings }) {
       () => setDbStatus('error')
     );
   }, [company?.id]);
+
+  useEffect(() => {
+    if (!company?.id || !canManageParts) return undefined;
+    return subscribeOpenPartRequestCount(
+      company.id,
+      setOpenPartsCount,
+      (err) => console.warn(err)
+    );
+  }, [company?.id, canManageParts]);
 
   const filtered = useMemo(() => {
     return jobs.filter((j) => {
@@ -172,6 +188,21 @@ export default function Dashboard({ onOpenJob, onOpenSettings }) {
             >
               {dbStatus === 'online' ? 'LIVE' : 'SYNC'}
             </span>
+            {canManageParts && onOpenParts && (
+              <button
+                type="button"
+                onClick={onOpenParts}
+                className="relative p-1.5 lg:p-2.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg lg:rounded-xl transition-colors"
+                title="Parts requests"
+              >
+                <Package size={18} className="lg:w-5 lg:h-5" />
+                {openPartsCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[1.1rem] h-[1.1rem] px-0.5 rounded-full bg-red-600 text-white text-[9px] font-black flex items-center justify-center">
+                    {openPartsCount > 9 ? '9+' : openPartsCount}
+                  </span>
+                )}
+              </button>
+            )}
             <button
               type="button"
               onClick={onOpenSettings}

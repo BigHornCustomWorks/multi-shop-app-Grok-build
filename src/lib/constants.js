@@ -71,8 +71,16 @@ export function pillStyle(bgHex) {
 export const ROLES = {
   PLATFORM_ADMIN: 'platform_admin',
   SHOP_ADMIN: 'shop_admin',
+  PARTS_MANAGER: 'parts_manager',
   TECH: 'tech',
 };
+
+export const PART_REQUEST_STATUSES = ['open', 'ordered', 'received', 'cancelled'];
+
+export const PART_REQUEST_URGENCY = [
+  { id: 'normal', label: 'Normal' },
+  { id: 'urgent', label: 'Urgent' },
+];
 
 /** Seat tiers — soft limits (overage allowed, bill later) */
 export const PLANS = [

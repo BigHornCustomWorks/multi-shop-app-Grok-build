@@ -193,6 +193,10 @@ export function AuthProvider({ children }) {
     profile?.role === ROLES.PLATFORM_ADMIN || isPlatformAdminEmail(user?.email);
 
   const isShopAdmin = !isPlatformAdmin && profile?.role === ROLES.SHOP_ADMIN;
+  const isPartsManager = !isPlatformAdmin && profile?.role === ROLES.PARTS_MANAGER;
+  /** Can open parts request inbox */
+  const canManageParts =
+    isPlatformAdmin || isShopAdmin || isPartsManager;
 
   const value = useMemo(
     () => ({
@@ -206,6 +210,8 @@ export function AuthProvider({ children }) {
       setError,
       isPlatformAdmin,
       isShopAdmin,
+      isPartsManager,
+      canManageParts,
       connectFirebase,
       login,
       signup,
@@ -214,7 +220,19 @@ export function AuthProvider({ children }) {
       setJobFilter,
       reloadConfig: () => setFirebaseOk(isFirebaseReady() || Boolean(loadFirebaseConfig())),
     }),
-    [ready, loading, firebaseOk, user, profile, company, error, isPlatformAdmin, isShopAdmin]
+    [
+      ready,
+      loading,
+      firebaseOk,
+      user,
+      profile,
+      company,
+      error,
+      isPlatformAdmin,
+      isShopAdmin,
+      isPartsManager,
+      canManageParts,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

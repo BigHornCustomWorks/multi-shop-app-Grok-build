@@ -29,6 +29,7 @@ import {
   planById,
 } from './constants';
 import { MAX_IMAGE_BYTES, PLATFORM_ADMIN_EMAIL } from '../config';
+import { compressPhotoFile, compressLogoFile } from './compressImage';
 
 function db() {
   return getFirebase().db;
@@ -159,14 +160,13 @@ export async function removeUserFromCompany(uid) {
 }
 
 /**
- * Set staff role: tech | shop_admin (platform admin from Master Control).
- * Cannot set platform_admin here — that is email-based.
+ * Set staff role (not platform_admin — that is email-based).
  */
 export async function setUserRole(uid, role) {
   if (!uid) throw new Error('Missing user id');
-  const allowed = [ROLES.TECH, ROLES.SHOP_ADMIN];
+  const allowed = [ROLES.TECH, ROLES.SHOP_ADMIN, ROLES.PARTS_MANAGER];
   if (!allowed.includes(role)) {
-    throw new Error('Role must be tech or shop_admin');
+    throw new Error('Role must be tech, shop_admin, or parts_manager');
   }
   await setDoc(
     doc(db(), 'users', uid),
@@ -313,14 +313,15 @@ export async function findCompanyByInviteCode(code) {
 export async function uploadCompanyLogo(companyId, file) {
   if (!file) throw new Error('No file selected');
   if (file.size > MAX_IMAGE_BYTES) throw new Error('Image must be under 5 MB');
-  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
-  if (!['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
+  const compressed = await compressLogoFile(file);
+  const ext = 'jpg';
+  if (file.type && !file.type.startsWith('image/')) {
     throw new Error('Use a JPG or PNG image');
   }
 
-  const path = `companies/${companyId}/logo.${ext === 'jpeg' ? 'jpg' : ext}`;
+  const path = `companies/${companyId}/logo.${ext}`;
   const storageRef = ref(storage(), path);
-  await uploadBytes(storageRef, file, { contentType: file.type || 'image/jpeg' });
+  await uploadBytes(storageRef, compressed, { contentType: 'image/jpeg' });
   const logoUrl = await getDownloadURL(storageRef);
 
   const companySnap = await getDoc(doc(db(), 'companies', companyId));
@@ -366,13 +367,15 @@ export async function deleteJob(companyId, jobId) {
 
 export async function uploadJobPhoto(companyId, jobId, file, meta = {}) {
   if (!file) throw new Error('No file selected');
-  if (file.size > MAX_IMAGE_BYTES) throw new Error('Image must be under 5 MB');
+  if (file.size > MAX_IMAGE_BYTES * 4) {
+    throw new Error('Image is too large (max ~20 MB before compress)');
+  }
 
+  const compressed = await compressPhotoFile(file);
   const photoId = generateId();
-  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
-  const path = `companies/${companyId}/jobs/${jobId}/${photoId}.${ext === 'jpeg' ? 'jpg' : ext}`;
+  const path = `companies/${companyId}/jobs/${jobId}/${photoId}.jpg`;
   const storageRef = ref(storage(), path);
-  await uploadBytes(storageRef, file, { contentType: file.type || 'image/jpeg' });
+  await uploadBytes(storageRef, compressed, { contentType: 'image/jpeg' });
   const url = await getDownloadURL(storageRef);
 
   return {
@@ -383,6 +386,7 @@ export async function uploadJobPhoto(companyId, jobId, file, meta = {}) {
     createdAt: Date.now(),
     createdByName: meta.createdByName || '',
     createdByUid: meta.createdByUid || '',
+    bytes: compressed.size || null,
   };
 }
 
@@ -393,6 +397,91 @@ export async function deleteJobPhotoFile(path) {
   } catch (e) {
     console.warn('Could not delete storage file', e);
   }
+}
+
+// ─── Part requests ───────────────────────────────────────────────────────────
+
+export function subscribePartRequests(companyId, callback, onError) {
+  const q = query(
+    collection(db(), 'companies', companyId, 'partRequests'),
+    orderBy('createdAt', 'desc')
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    },
+    onError
+  );
+}
+
+export function subscribeOpenPartRequestCount(companyId, callback, onError) {
+  const q = query(
+    collection(db(), 'companies', companyId, 'partRequests'),
+    where('status', '==', 'open')
+  );
+  return onSnapshot(
+    q,
+    (snap) => callback(snap.size),
+    onError
+  );
+}
+
+export async function createPartRequest(companyId, data) {
+  const id = data.id || generateId();
+  const payload = {
+    id,
+    companyId,
+    jobId: data.jobId || '',
+    jobCustomerName: data.jobCustomerName || '',
+    jobVehicle: data.jobVehicle || '',
+    jobRo: data.jobRo || '',
+    description: (data.description || '').trim(),
+    partNumber: (data.partNumber || '').trim().toUpperCase(),
+    quantity: Number(data.quantity) || 1,
+    urgency: data.urgency === 'urgent' ? 'urgent' : 'normal',
+    note: (data.note || '').trim(),
+    photos: Array.isArray(data.photos) ? data.photos : [],
+    status: 'open',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    createdByUid: data.createdByUid || '',
+    createdByName: data.createdByName || '',
+    resolvedAt: null,
+    resolvedByName: '',
+  };
+  if (!payload.description && !payload.photos.length) {
+    throw new Error('Add a description or a photo for the request.');
+  }
+  await setDoc(doc(db(), 'companies', companyId, 'partRequests', id), payload);
+  return payload;
+}
+
+export async function updatePartRequest(companyId, requestId, partial) {
+  await setDoc(
+    doc(db(), 'companies', companyId, 'partRequests', requestId),
+    { ...partial, updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
+export async function uploadPartRequestPhoto(companyId, requestId, file, meta = {}) {
+  if (!file) throw new Error('No file selected');
+  const compressed = await compressPhotoFile(file);
+  const photoId = generateId();
+  const path = `companies/${companyId}/partRequests/${requestId}/${photoId}.jpg`;
+  const storageRef = ref(storage(), path);
+  await uploadBytes(storageRef, compressed, { contentType: 'image/jpeg' });
+  const url = await getDownloadURL(storageRef);
+  return {
+    id: photoId,
+    url,
+    path,
+    createdAt: Date.now(),
+    createdByName: meta.createdByName || '',
+    createdByUid: meta.createdByUid || '',
+    bytes: compressed.size || null,
+  };
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

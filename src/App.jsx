@@ -8,11 +8,12 @@ import MasterControl from './pages/MasterControl';
 import Dashboard from './pages/Dashboard';
 import JobDetail from './pages/JobDetail';
 import ShopAccount from './pages/ShopAccount';
+import PartsInbox from './pages/PartsInbox';
 import { APP_NAME } from './config';
 
 export default function App() {
   const { ready, loading, firebaseOk, user, profile, company, isPlatformAdmin } = useAuth();
-  const [view, setView] = useState('dashboard'); // dashboard | detail | account
+  const [view, setView] = useState('dashboard'); // dashboard | detail | account | parts
   const [currentJob, setCurrentJob] = useState(null);
 
   if (!firebaseOk) {
@@ -73,6 +74,15 @@ export default function App() {
     return <ShopAccount onBack={() => setView('dashboard')} />;
   }
 
+  if (view === 'parts') {
+    return (
+      <PartsInbox
+        onBack={() => setView('dashboard')}
+        onOpenJob={() => setView('dashboard')}
+      />
+    );
+  }
+
   return (
     <Dashboard
       onOpenJob={(job) => {
@@ -80,6 +90,7 @@ export default function App() {
         setView('detail');
       }}
       onOpenSettings={() => setView('account')}
+      onOpenParts={() => setView('parts')}
     />
   );
 }

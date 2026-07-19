@@ -373,7 +373,9 @@ export default function ShopAccount({ onBack }) {
             <span className="font-semibold uppercase text-xs tracking-wider">
               {profile?.role === ROLES.SHOP_ADMIN
                 ? 'Shop admin'
-                : profile?.role || '—'}
+                : profile?.role === ROLES.PARTS_MANAGER
+                  ? 'Parts manager'
+                  : profile?.role || '—'}
             </span>
           </div>
         </div>

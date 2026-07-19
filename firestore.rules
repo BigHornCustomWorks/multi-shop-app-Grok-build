@@ -36,36 +36,35 @@ service cloud.firestore {
         && userDoc().companyId.size() > 0;
     }
 
+    function isPartsManager() {
+      return accountActive()
+        && userExists()
+        && userDoc().role == 'parts_manager'
+        && userDoc().companyId is string
+        && userDoc().companyId.size() > 0;
+    }
+
     function sameCompany(companyId) {
       return accountActive()
         && userExists()
         && userDoc().companyId == companyId;
     }
 
-    // ── Users ──────────────────────────────────────────────────────────────
     match /users/{userId} {
-      // Anyone signed in can read/update their OWN user doc (needed for join + profile)
       allow read, create, update: if signedIn() && request.auth.uid == userId && accountActive();
-
-      // Platform admin full access
       allow read, update: if isPlatformAdmin();
-
-      // Shop admin can manage staff in their company
       allow read, update: if isShopAdmin()
         && resource.data.get('companyId', '') == userDoc().companyId
         && resource.data.get('role', '') != 'platform_admin';
     }
 
-    // ── Invite codes (direct lookup by code — no collection query needed) ──
     match /inviteCodes/{code} {
       allow get: if signedIn() && accountActive();
       allow list: if isPlatformAdmin();
       allow create, update, delete: if isPlatformAdmin();
     }
 
-    // ── Companies ──────────────────────────────────────────────────────────
     match /companies/{companyId} {
-      // Signed-in users can read companies (invite join + member access)
       allow read, list: if signedIn() && accountActive();
 
       allow create, delete: if isPlatformAdmin();
@@ -79,6 +78,16 @@ service cloud.firestore {
 
       match /jobs/{jobId} {
         allow read, write: if isPlatformAdmin() || sameCompany(companyId);
+      }
+
+      // Part requests: all shop members can create/read; managers update status
+      match /partRequests/{requestId} {
+        allow read: if isPlatformAdmin() || sameCompany(companyId);
+        allow create: if isPlatformAdmin() || sameCompany(companyId);
+        allow update: if isPlatformAdmin()
+          || sameCompany(companyId);
+        allow delete: if isPlatformAdmin() || isShopAdmin()
+          || (isPartsManager() && userDoc().companyId == companyId);
       }
     }
   }

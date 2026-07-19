@@ -24,6 +24,8 @@ import {
   uploadJobPhoto,
   deleteJobPhotoFile,
   shouldNotifyCustomerOnStatus,
+  createPartRequest,
+  uploadPartRequestPhoto,
 } from '../lib/api';
 import { generateId } from '../lib/ids';
 import { DEFAULT_BRANDING } from '../lib/constants';
@@ -55,10 +57,19 @@ export default function JobDetail({ job, onBack }) {
   const [bulkLocation, setBulkLocation] = useState('');
   const [scanPickerOpen, setScanPickerOpen] = useState(false);
   const [scanMode, setScanMode] = useState('ccc_estimate');
+  const [reqDesc, setReqDesc] = useState('');
+  const [reqPartNumber, setReqPartNumber] = useState('');
+  const [reqQty, setReqQty] = useState(1);
+  const [reqUrgency, setReqUrgency] = useState('normal');
+  const [reqNote, setReqNote] = useState('');
+  const [reqPhotoFile, setReqPhotoFile] = useState(null);
+  const [reqBusy, setReqBusy] = useState(false);
+  const [reqMsg, setReqMsg] = useState('');
   /** Always-mounted file inputs (must not live only inside Parts tab) */
   const scanFileRef = useRef(null);
   const scanCameraRef = useRef(null);
   const photoRef = useRef(null);
+  const reqPhotoRef = useRef(null);
   const invoiceKey = getInvoiceApiKey();
 
   const settings = company?.settings || {};
@@ -583,6 +594,145 @@ export default function JobDetail({ job, onBack }) {
             >
               {form.isArchived ? 'Unarchive job' : 'Archive job'}
             </button>
+
+            {/* Part request → Parts Manager inbox */}
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
+              <div className="section-title">
+                <Package size={14} /> Request a part
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                Sends a request to the parts manager / shop admin with optional photo (compressed
+                before upload).
+              </p>
+              <Field label="What do you need?">
+                <input
+                  className="field text-sm font-bold"
+                  value={reqDesc}
+                  onChange={(e) => setReqDesc(e.target.value)}
+                  placeholder="e.g. Left fog lamp assembly"
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Part # (optional)">
+                  <input
+                    className="field text-xs font-mono font-bold"
+                    value={reqPartNumber}
+                    onChange={(e) => setReqPartNumber(e.target.value)}
+                    placeholder="OEM / vendor #"
+                  />
+                </Field>
+                <Field label="Qty">
+                  <input
+                    type="number"
+                    min={1}
+                    className="field text-sm font-bold text-center"
+                    value={reqQty}
+                    onChange={(e) => setReqQty(e.target.value)}
+                  />
+                </Field>
+              </div>
+              <Field label="Urgency">
+                <select
+                  className="field text-sm font-bold"
+                  value={reqUrgency}
+                  onChange={(e) => setReqUrgency(e.target.value)}
+                >
+                  <option value="normal">Normal</option>
+                  <option value="urgent">Urgent</option>
+                </select>
+              </Field>
+              <Field label="Notes for parts">
+                <textarea
+                  className="field text-sm min-h-[64px]"
+                  value={reqNote}
+                  onChange={(e) => setReqNote(e.target.value)}
+                  placeholder="Color, side, vendor preference…"
+                />
+              </Field>
+              <div className="flex flex-wrap gap-2 items-center">
+                <button
+                  type="button"
+                  onClick={() => reqPhotoRef.current?.click()}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 text-xs font-bold"
+                >
+                  <Camera size={16} />
+                  {reqPhotoFile ? 'Change photo' : 'Add photo'}
+                </button>
+                {reqPhotoFile && (
+                  <span className="text-[11px] text-slate-500 truncate max-w-[12rem]">
+                    {reqPhotoFile.name}
+                  </span>
+                )}
+                <input
+                  ref={reqPhotoRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => setReqPhotoFile(e.target.files?.[0] || null)}
+                />
+              </div>
+              {reqMsg && (
+                <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">{reqMsg}</p>
+              )}
+              <button
+                type="button"
+                disabled={reqBusy}
+                onClick={async () => {
+                  if (!company?.id || !form.id) return;
+                  setReqBusy(true);
+                  setReqMsg('');
+                  try {
+                    const requestId = generateId();
+                    let photos = [];
+                    if (reqPhotoFile) {
+                      const photo = await uploadPartRequestPhoto(
+                        company.id,
+                        requestId,
+                        reqPhotoFile,
+                        {
+                          createdByName: profile?.displayName || user?.email || '',
+                          createdByUid: user?.uid || '',
+                        }
+                      );
+                      photos = [photo];
+                    }
+                    await createPartRequest(company.id, {
+                      id: requestId,
+                      jobId: form.id,
+                      jobCustomerName: form.customerName || '',
+                      jobVehicle: form.vehicle || '',
+                      jobRo: form.roNumber || '',
+                      description: reqDesc,
+                      partNumber: reqPartNumber,
+                      quantity: reqQty,
+                      urgency: reqUrgency,
+                      note: reqNote,
+                      photos,
+                      createdByUid: user?.uid || '',
+                      createdByName: profile?.displayName || user?.email || '',
+                    });
+                    setReqDesc('');
+                    setReqPartNumber('');
+                    setReqQty(1);
+                    setReqUrgency('normal');
+                    setReqNote('');
+                    setReqPhotoFile(null);
+                    setReqMsg('Request sent to parts.');
+                    setTimeout(() => setReqMsg(''), 3000);
+                  } catch (err) {
+                    alert(err.message || 'Could not send request');
+                  } finally {
+                    setReqBusy(false);
+                  }
+                }}
+                className="w-full py-3.5 rounded-xl text-white text-xs font-black uppercase shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
+                style={{ backgroundColor: primary }}
+              >
+                {reqBusy ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
+                Send part request
+              </button>
+            </div>
 
             <div className="pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
               <div className="section-title">

@@ -668,17 +668,24 @@ function ShopEditor({ company, onSaved }) {
                       <select
                         disabled={busy || u.role === ROLES.PLATFORM_ADMIN}
                         value={
-                          u.role === ROLES.SHOP_ADMIN ? ROLES.SHOP_ADMIN : ROLES.TECH
+                          u.role === ROLES.SHOP_ADMIN
+                            ? ROLES.SHOP_ADMIN
+                            : u.role === ROLES.PARTS_MANAGER
+                              ? ROLES.PARTS_MANAGER
+                              : ROLES.TECH
                         }
                         onChange={async (e) => {
                           const role = e.target.value;
                           setUserBusyId(u.id);
                           try {
                             await setUserRole(u.id, role);
+                            const labels = {
+                              [ROLES.SHOP_ADMIN]: 'shop admin',
+                              [ROLES.PARTS_MANAGER]: 'parts manager',
+                              [ROLES.TECH]: 'tech',
+                            };
                             onSaved(
-                              role === ROLES.SHOP_ADMIN
-                                ? `${u.displayName || u.email} is now shop admin.`
-                                : `${u.displayName || u.email} is now a tech.`
+                              `${u.displayName || u.email} is now ${labels[role] || role}.`
                             );
                             reloadUsers();
                           } catch (err) {
@@ -687,9 +694,10 @@ function ShopEditor({ company, onSaved }) {
                             setUserBusyId(null);
                           }
                         }}
-                        className="field text-[11px] font-bold py-1.5 w-auto min-w-[8.5rem]"
+                        className="field text-[11px] font-bold py-1.5 w-auto min-w-[9.5rem]"
                       >
                         <option value={ROLES.TECH}>Tech</option>
+                        <option value={ROLES.PARTS_MANAGER}>Parts manager</option>
                         <option value={ROLES.SHOP_ADMIN}>Shop admin</option>
                       </select>
                     </label>
