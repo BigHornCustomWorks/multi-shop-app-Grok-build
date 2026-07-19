@@ -666,21 +666,32 @@ export default function JobDetail({ job, onBack }) {
                   placeholder="Year Make Model"
                 />
               </Field>
-              <Field label="Date in shop (arrival)">
-                <input
-                  type="date"
-                  className="field font-bold"
-                  value={form.arrivalDate || ''}
-                  onChange={(e) => update('arrivalDate', e.target.value)}
-                />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Used for the “days at shop” counter on the dashboard.
-                </p>
-              </Field>
+              {/* Date + RO side by side (date slightly narrower on small screens) */}
+              <div className="grid grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] sm:grid-cols-2 gap-3 lg:col-span-2">
+                <Field label="Date in shop">
+                  <input
+                    type="date"
+                    className="field font-bold text-sm min-w-0"
+                    value={form.arrivalDate || ''}
+                    onChange={(e) => update('arrivalDate', e.target.value)}
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1 hidden sm:block">
+                    Days-at-shop counter on the list.
+                  </p>
+                </Field>
+                <Field label="RO number">
+                  <input
+                    className="field font-bold min-w-0"
+                    value={form.roNumber || ''}
+                    onChange={(e) => update('roNumber', e.target.value)}
+                    placeholder="RO #"
+                  />
+                </Field>
+              </div>
               <div className="lg:col-span-2">
                 <Field label="Damage / what happened">
                   <textarea
-                    className="field text-sm min-h-[72px]"
+                    className="field text-sm min-h-[64px]"
                     value={form.damageSummary || ''}
                     onChange={(e) => update('damageSummary', e.target.value)}
                     placeholder="e.g. LF fender & door, hail roof, rear bumper — short note for the tech list"
@@ -742,13 +753,6 @@ export default function JobDetail({ job, onBack }) {
                   </span>
                 </label>
               </div>
-              <Field label="RO number">
-                <input
-                  className="field"
-                  value={form.roNumber || ''}
-                  onChange={(e) => update('roNumber', e.target.value)}
-                />
-              </Field>
               <Field label="Vehicle location">
                 <select
                   className="field font-bold"

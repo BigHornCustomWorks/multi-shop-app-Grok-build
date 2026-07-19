@@ -2,7 +2,8 @@ import React from 'react';
 import { ChevronDown } from 'lucide-react';
 
 /**
- * Large pill-shaped select for dashboard status / location chips.
+ * Large rounded-rectangle select for dashboard status / location chips.
+ * Use className="w-full" + parent grid for side-by-side mobile layout.
  */
 export default function PillSelect({
   value,
@@ -17,7 +18,7 @@ export default function PillSelect({
   if (value && !list.includes(value)) list.unshift(value);
 
   return (
-    <div className="relative inline-flex max-w-full" title={title}>
+    <div className={`relative inline-flex min-w-0 ${className.includes('w-full') ? 'w-full' : 'max-w-full'}`} title={title}>
       <select
         value={value || ''}
         onClick={(e) => e.stopPropagation()}
@@ -27,7 +28,7 @@ export default function PillSelect({
           onChange?.(e.target.value);
         }}
         style={style}
-        className={`pill-select appearance-none cursor-pointer pr-8 pl-3.5 py-2 text-[11px] sm:text-xs font-bold rounded-full border-2 outline-none shadow-sm transition-all duration-150 hover:scale-[1.02] active:scale-[0.98] focus:ring-2 focus:ring-offset-1 focus:ring-blue-400 dark:focus:ring-blue-500 dark:focus:ring-offset-slate-900 max-w-[12.5rem] truncate ${className}`}
+        className={`pill-select appearance-none cursor-pointer w-full pr-8 pl-3 py-2.5 sm:py-3 text-[10px] sm:text-[11px] font-black uppercase tracking-wide rounded-xl border-2 outline-none shadow-sm transition-all duration-150 hover:brightness-[0.98] active:scale-[0.99] focus:ring-2 focus:ring-offset-1 focus:ring-blue-400 dark:focus:ring-blue-500 dark:focus:ring-offset-slate-900 truncate ${className}`}
       >
         {emptyLabel != null && <option value="">{emptyLabel}</option>}
         {list.map((opt) => (

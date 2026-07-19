@@ -180,8 +180,8 @@ button {
 }
 
 .pill-select {
-  /* color classes applied per-instance; base keeps height touch-friendly */
-  min-height: 2.25rem;
+  /* Rounded rectangle chips — large enough to tap on phones */
+  min-height: 2.5rem;
 }
 
 /* Native option menus stay system-colored */
