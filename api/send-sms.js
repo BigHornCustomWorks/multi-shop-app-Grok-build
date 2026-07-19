@@ -85,22 +85,60 @@ async function verifyFirebaseIdToken(idToken) {
   return { uid: user.localId, email: user.email || '' };
 }
 
-function twilioAuthHeader() {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID || '';
-  const authToken = process.env.TWILIO_AUTH_TOKEN || '';
-  const apiKeySid = process.env.TWILIO_API_KEY_SID || '';
-  const apiKeySecret = process.env.TWILIO_API_KEY_SECRET || '';
+/** Read env and strip quotes/whitespace people often paste from consoles */
+function env(name) {
+  let v = process.env[name];
+  if (v == null) return '';
+  v = String(v).trim();
+  // Vercel/UI paste sometimes includes surrounding quotes
+  if (
+    (v.startsWith('"') && v.endsWith('"')) ||
+    (v.startsWith("'") && v.endsWith("'"))
+  ) {
+    v = v.slice(1, -1).trim();
+  }
+  return v;
+}
 
+function twilioConfigStatus() {
+  return {
+    hasAccountSid: Boolean(env('TWILIO_ACCOUNT_SID')),
+    hasAuthToken: Boolean(env('TWILIO_AUTH_TOKEN')),
+    hasApiKeySid: Boolean(env('TWILIO_API_KEY_SID')),
+    hasApiKeySecret: Boolean(env('TWILIO_API_KEY_SECRET')),
+    hasFromNumber: Boolean(env('TWILIO_FROM_NUMBER')),
+  };
+}
+
+function twilioAuthHeader() {
+  const accountSid = env('TWILIO_ACCOUNT_SID');
+  const authToken = env('TWILIO_AUTH_TOKEN');
+  const apiKeySid = env('TWILIO_API_KEY_SID');
+  const apiKeySecret = env('TWILIO_API_KEY_SECRET');
+  const status = twilioConfigStatus();
+
+  if (!accountSid) {
+    throw new Error(
+      'Twilio not configured on the server: missing TWILIO_ACCOUNT_SID. ' +
+        'Add it in Vercel → Project → Settings → Environment Variables, then Redeploy. ' +
+        `Seen: ${JSON.stringify(status)}`
+    );
+  }
+
+  // API Key auth (SID starts with SK…) still needs Account SID for the URL
   if (apiKeySid && apiKeySecret) {
     const token = Buffer.from(`${apiKeySid}:${apiKeySecret}`).toString('base64');
     return { authorization: `Basic ${token}`, accountSid };
   }
-  if (accountSid && authToken) {
+  if (authToken) {
     const token = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
     return { authorization: `Basic ${token}`, accountSid };
   }
+
   throw new Error(
-    'Twilio not configured. Set TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN (or API key SID/secret) on the server.'
+    'Twilio not configured on the server: set TWILIO_AUTH_TOKEN (primary Auth Token) ' +
+      'OR both TWILIO_API_KEY_SID + TWILIO_API_KEY_SECRET in Vercel env, then Redeploy. ' +
+      `Seen: ${JSON.stringify(status)}`
   );
 }
 
@@ -130,7 +168,7 @@ export default async function handler(req, res) {
     const body = await readBody(req);
     const to = toE164(body.to);
     const message = String(body.message || body.body || '').trim();
-    const from = toE164(process.env.TWILIO_FROM_NUMBER || '');
+    const from = toE164(env('TWILIO_FROM_NUMBER'));
 
     if (!to) {
       return json(res, 400, {
