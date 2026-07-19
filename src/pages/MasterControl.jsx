@@ -477,16 +477,20 @@ function ShopEditor({ company, onSaved }) {
               manual “Text now” on the job). Requires Twilio env vars on Vercel.
             </p>
             <ToggleRow
-              label="Customer status emails (future)"
+              label="Customer status emails (Twilio)"
               on={customerStatusEmails}
               onToggle={() => setCustomerStatusEmails((v) => !v)}
             />
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              Personalized email via Twilio (name, vehicle, RO, status). Needs{' '}
+              <b>TWILIO_EMAIL_FROM</b> (verified sender) on Vercel.
+            </p>
           </div>
         </div>
 
         <div className="mt-4 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
           <div>
-            <label className="lbl">Shop phone (shown in customer texts)</label>
+            <label className="lbl">Shop phone (shown in customer texts / emails)</label>
             <input
               type="tel"
               className="field font-bold"
@@ -495,13 +499,13 @@ function ShopEditor({ company, onSaved }) {
               placeholder="(555) 555-5555"
             />
             <p className="text-[10px] text-slate-400 mt-1">
-              Customers can call this number — texts still send from your Twilio number.
+              Customers can call this number — SMS still sends from your Twilio number.
             </p>
           </div>
-          <div className="section-title mb-2">Text customer on these statuses</div>
+          <div className="section-title mb-2">Notify customer on these statuses</div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3">
-            Only these repair statuses auto-text the customer (when SMS is on, job has opt-in +
-            phone). Use sparingly — e.g. Waiting for Parts, Ready / Customer Contacted.
+            Auto text and/or email when status matches (and the job has opt-in + contact info + the
+            channel is on). Use sparingly — e.g. Waiting for Parts, Customer Contacted.
           </p>
           <div className="flex flex-wrap gap-2">
             {(settings.repairStatuses || []).map((s) => {

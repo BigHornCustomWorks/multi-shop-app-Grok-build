@@ -115,7 +115,7 @@ export function defaultCompanySettings() {
 export function defaultCompanyFeatures() {
   return {
     invoiceScanner: false, // paid upgrade
-    customerStatusEmails: false, // reserved for future email
+    customerStatusEmails: false, // Twilio Emails API status updates
     customerStatusSms: false, // status texts via Twilio
   };
 }

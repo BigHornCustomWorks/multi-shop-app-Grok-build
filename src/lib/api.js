@@ -508,6 +508,8 @@ export function emptyJob(defaults = {}) {
     photos: [],
     /** Recent SMS attempts { id, at, status, to, ok, error, sid } */
     smsLog: [],
+    /** Recent email attempts */
+    emailLog: [],
     isArchived: false,
   };
 }

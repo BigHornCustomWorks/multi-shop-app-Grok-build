@@ -1,0 +1,237 @@
+/**
+ * Vercel serverless: send a status email via Twilio Emails API
+ * POST https://comms.twilio.com/v1/Emails
+ *
+ * Env (Vercel — never VITE_*):
+ *   TWILIO_ACCOUNT_SID
+ *   TWILIO_AUTH_TOKEN
+ *   TWILIO_EMAIL_FROM          verified sender address (required)
+ *   TWILIO_EMAIL_FROM_NAME     e.g. "Custom Shop Management" (optional)
+ *
+ * Optional reply-to is passed per request (shop contact email).
+ */
+
+function json(res, status, body) {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify(body));
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (chunk) => {
+      data += chunk;
+      if (data.length > 1e6) {
+        reject(new Error('Body too large'));
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      if (!data) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(data));
+      } catch {
+        reject(new Error('Invalid JSON body'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function env(name) {
+  let v = process.env[name];
+  if (v == null) return '';
+  v = String(v).trim();
+  if (
+    (v.startsWith('"') && v.endsWith('"')) ||
+    (v.startsWith("'") && v.endsWith("'"))
+  ) {
+    v = v.slice(1, -1).trim();
+  }
+  return v;
+}
+
+async function verifyFirebaseIdToken(idToken) {
+  const apiKey =
+    process.env.FIREBASE_WEB_API_KEY || process.env.VITE_FIREBASE_API_KEY || '';
+  if (!apiKey) {
+    throw new Error(
+      'Server missing FIREBASE_WEB_API_KEY (or VITE_FIREBASE_API_KEY) to verify logins.'
+    );
+  }
+  const res = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken }),
+    }
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error?.message || 'Invalid or expired login token');
+  }
+  const user = data?.users?.[0];
+  if (!user?.localId) throw new Error('Invalid login token');
+  return { uid: user.localId, email: user.email || '' };
+}
+
+function twilioBasicAuth() {
+  const accountSid = env('TWILIO_ACCOUNT_SID');
+  const authToken = env('TWILIO_AUTH_TOKEN');
+  const apiKeySid = env('TWILIO_API_KEY_SID');
+  const apiKeySecret = env('TWILIO_API_KEY_SECRET');
+
+  if (!accountSid) {
+    throw new Error(
+      'Missing TWILIO_ACCOUNT_SID on the server. Add it in Vercel env and Redeploy.'
+    );
+  }
+  if (apiKeySid && apiKeySecret) {
+    return Buffer.from(`${apiKeySid}:${apiKeySecret}`).toString('base64');
+  }
+  if (authToken) {
+    return Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+  }
+  throw new Error(
+    'Missing TWILIO_AUTH_TOKEN (or API key SID/secret) on the server. Add in Vercel and Redeploy.'
+  );
+}
+
+function isEmail(s) {
+  const e = String(s || '').trim();
+  return e.includes('@') && e.includes('.') && e.length > 5;
+}
+
+export default async function handler(req, res) {
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    return json(res, 204, {});
+  }
+
+  if (req.method !== 'POST') {
+    return json(res, 405, { error: 'Method not allowed' });
+  }
+
+  try {
+    const authHeader = req.headers.authorization || req.headers.Authorization || '';
+    const idToken = authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7).trim()
+      : '';
+    if (!idToken) {
+      return json(res, 401, { error: 'Sign in required (missing Authorization bearer token).' });
+    }
+
+    await verifyFirebaseIdToken(idToken);
+
+    const body = await readBody(req);
+    const to = String(body.to || '').trim().toLowerCase();
+    const variables =
+      body.variables && typeof body.variables === 'object' ? body.variables : {};
+    const subject =
+      String(body.subject || '').trim() ||
+      'Hello {{ firstName | default: "there" }} — vehicle update';
+    const html =
+      String(body.html || '').trim() ||
+      '<p>Hey {{ firstName | default: "there" }}, your vehicle status has been updated.</p>';
+    const text =
+      String(body.text || '').trim() ||
+      'Hey {{ firstName | default: "there" }}, your vehicle status has been updated.';
+
+    const fromAddress = env('TWILIO_EMAIL_FROM');
+    const fromName =
+      env('TWILIO_EMAIL_FROM_NAME') ||
+      String(body.fromName || '').trim() ||
+      'Shop updates';
+    const replyTo = String(body.replyTo || '').trim();
+
+    if (!isEmail(to)) {
+      return json(res, 400, { error: 'Customer email is missing or invalid.' });
+    }
+    if (!isEmail(fromAddress)) {
+      return json(res, 500, {
+        error:
+          'TWILIO_EMAIL_FROM is not set (or invalid) on the server. Use a sender address verified in Twilio Email / SendGrid, then Redeploy.',
+      });
+    }
+
+    const payload = {
+      from: {
+        address: fromAddress,
+        name: fromName,
+      },
+      to: [
+        {
+          address: to,
+          variables: {
+            firstName: String(variables.firstName || ''),
+            lastName: String(variables.lastName || ''),
+            customerName: String(variables.customerName || ''),
+            vehicle: String(variables.vehicle || ''),
+            roNumber: String(variables.roNumber || ''),
+            status: String(variables.status || ''),
+            shopName: String(variables.shopName || ''),
+            shopPhone: String(variables.shopPhone || ''),
+          },
+        },
+      ],
+      content: {
+        subject,
+        html,
+        text,
+      },
+    };
+
+    // Reply-To so customers reach the shop (when From is a platform/Twilio domain)
+    if (isEmail(replyTo)) {
+      payload.reply_to = { address: replyTo };
+      // Some Twilio Email API variants use camelCase replyTo
+      payload.replyTo = { address: replyTo };
+    }
+
+    const authorization = twilioBasicAuth();
+    const twilioRes = await fetch('https://comms.twilio.com/v1/Emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${authorization}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const twilioData = await twilioRes.json().catch(() => ({}));
+
+    if (!twilioRes.ok) {
+      const msg =
+        twilioData?.message ||
+        twilioData?.error_message ||
+        twilioData?.error ||
+        (typeof twilioData === 'string' ? twilioData : null) ||
+        `Twilio Email error ${twilioRes.status}`;
+      return json(res, 502, {
+        error: String(msg),
+        details: twilioData,
+        hint:
+          /sender|from|verif|domain|not allowed/i.test(String(msg))
+            ? 'Verify TWILIO_EMAIL_FROM in Twilio Console (Email / SendGrid sender identity), then try again.'
+            : undefined,
+      });
+    }
+
+    return json(res, 200, {
+      ok: true,
+      id: twilioData.id || twilioData.sid || null,
+      to,
+      from: fromAddress,
+    });
+  } catch (err) {
+    console.error('send-email', err);
+    return json(res, 500, { error: err.message || 'Failed to send email' });
+  }
+}

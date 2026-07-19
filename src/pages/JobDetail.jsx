@@ -47,6 +47,11 @@ import {
   sendStatusSms,
   shouldNotifyCustomerOnSms,
 } from '../lib/sms';
+import {
+  buildStatusEmailVariables,
+  buildStatusEmailContent,
+  sendStatusEmail,
+} from '../lib/email';
 
 export default function JobDetail({ job, onBack }) {
   const { company, user, profile } = useAuth();
@@ -91,7 +96,10 @@ export default function JobDetail({ job, onBack }) {
   const technicians = settings.technicians || [];
   const scannerEnabled = Boolean(company?.features?.invoiceScanner);
   const smsEnabled = Boolean(company?.features?.customerStatusSms);
+  const emailEnabled = Boolean(company?.features?.customerStatusEmails);
   const shopPhone = settings.shopPhone || company?.contactPhone || '';
+  const shopReplyEmail =
+    company?.contactEmail || settings.shopEmail || company?.billing?.contactEmail || '';
 
   useEffect(() => {
     // Merge defaults so older jobs still show new fields
@@ -202,6 +210,13 @@ export default function JobDetail({ job, onBack }) {
     return next;
   };
 
+  const appendEmailLog = (entry, baseForm = form) => {
+    const log = [{ ...entry, id: generateId() }, ...(baseForm.emailLog || [])].slice(0, 20);
+    const next = { ...baseForm, emailLog: log };
+    persist(next);
+    return next;
+  };
+
   const textCustomerStatus = async (statusOverride, { manual = false } = {}) => {
     if (!smsEnabled && !manual) return { skipped: true };
     const status = statusOverride || form.repairStatus;
@@ -243,7 +258,7 @@ export default function JobDetail({ job, onBack }) {
       });
       setSmsMsg(
         result.trialTemplate
-          ? 'Text sent (Twilio trial template — not full custom shop wording yet).'
+          ? 'Text sent (Twilio trial template — turn off TWILIO_TRIAL_MODE on Vercel for custom text).'
           : 'Text sent.'
       );
       setTimeout(() => setSmsMsg(''), 5000);
@@ -265,64 +280,201 @@ export default function JobDetail({ job, onBack }) {
     }
   };
 
+  const emailCustomerStatus = async (statusOverride, { manual = false, baseForm = form } = {}) => {
+    if (!emailEnabled && !manual) return { skipped: true };
+    const status = statusOverride || baseForm.repairStatus;
+    const email = String(baseForm.customerEmail || '').trim();
+    if (!email || !email.includes('@')) {
+      throw new Error('Add a valid customer email first.');
+    }
+    if (!baseForm.allowEmailUpdates && !manual) {
+      throw new Error('Customer has not opted in to email updates on this job.');
+    }
+    if (!baseForm.allowEmailUpdates && manual) {
+      const ok = window.confirm(
+        'This customer has not checked “Allow email updates.” Send a status email anyway?\n\nOnly do this if they agreed verbally.'
+      );
+      if (!ok) return { cancelled: true };
+    }
+
+    const variables = buildStatusEmailVariables({
+      customerName: baseForm.customerName,
+      vehicle: baseForm.vehicle,
+      roNumber: baseForm.roNumber,
+      status,
+      shopName: company?.name,
+      shopPhone,
+    });
+    const content = buildStatusEmailContent(variables);
+
+    setSmsBusy(true);
+    setSmsMsg('');
+    try {
+      const result = await sendStatusEmail({
+        to: email,
+        variables,
+        ...content,
+        replyTo: shopReplyEmail || undefined,
+        fromName: company?.name || undefined,
+      });
+      appendEmailLog(
+        {
+          at: Date.now(),
+          status,
+          to: result.to || email,
+          ok: true,
+          sid: result.id || '',
+          error: '',
+          manual,
+        },
+        baseForm
+      );
+      setSmsMsg('Email sent.');
+      setTimeout(() => setSmsMsg(''), 5000);
+      return { ok: true, result };
+    } catch (err) {
+      appendEmailLog(
+        {
+          at: Date.now(),
+          status,
+          to: email,
+          ok: false,
+          sid: '',
+          error: err.message || 'Failed',
+          manual,
+        },
+        baseForm
+      );
+      setSmsMsg(err.message || 'Email failed');
+      throw err;
+    } finally {
+      setSmsBusy(false);
+    }
+  };
+
   const onRepairStatusChange = async (newStatus) => {
     const prev = form.repairStatus;
-    const next = { ...form, repairStatus: newStatus };
+    let next = { ...form, repairStatus: newStatus };
     await persist(next);
     if (newStatus === prev) return;
-    if (shouldNotifyCustomerOnSms(next, company, newStatus)) {
-      try {
-        // Use next form state for phone/opt-in
-        const message = buildStatusSms({
-          shopName: company?.name,
-          vehicle: next.vehicle,
-          roNumber: next.roNumber,
-          status: newStatus,
-          shopPhone,
-        });
-        setSmsBusy(true);
-        setSmsMsg('');
-        const result = await sendStatusSms({ to: next.customerPhone, message });
-        const log = [
-          {
-            id: generateId(),
-            at: Date.now(),
+
+    setSmsBusy(true);
+    setSmsMsg('');
+    const notes = [];
+
+    try {
+      if (shouldNotifyCustomerOnSms(next, company, newStatus)) {
+        try {
+          const message = buildStatusSms({
+            shopName: company?.name,
+            vehicle: next.vehicle,
+            roNumber: next.roNumber,
             status: newStatus,
-            to: result.to || next.customerPhone,
-            ok: true,
-            sid: result.sid || '',
-            error: '',
-            manual: false,
-            trialTemplate: Boolean(result.trialTemplate),
-          },
-          ...(next.smsLog || []),
-        ].slice(0, 20);
-        await persist({ ...next, smsLog: log });
-        setSmsMsg(
-          result.trialTemplate
-            ? 'Status text sent (Twilio trial template).'
-            : 'Status text sent to customer.'
-        );
-        setTimeout(() => setSmsMsg(''), 5000);
-      } catch (err) {
-        const log = [
-          {
-            id: generateId(),
-            at: Date.now(),
-            status: newStatus,
-            to: next.customerPhone,
-            ok: false,
-            sid: '',
-            error: err.message || 'Failed',
-            manual: false,
-          },
-          ...(next.smsLog || []),
-        ].slice(0, 20);
-        await persist({ ...next, smsLog: log });
-        setSmsMsg(err.message || 'Auto text failed');
-      } finally {
-        setSmsBusy(false);
+            shopPhone,
+          });
+          const result = await sendStatusSms({ to: next.customerPhone, message });
+          next = {
+            ...next,
+            smsLog: [
+              {
+                id: generateId(),
+                at: Date.now(),
+                status: newStatus,
+                to: result.to || next.customerPhone,
+                ok: true,
+                sid: result.sid || '',
+                error: '',
+                manual: false,
+                trialTemplate: Boolean(result.trialTemplate),
+              },
+              ...(next.smsLog || []),
+            ].slice(0, 20),
+          };
+          notes.push(result.trialTemplate ? 'Text sent (template)' : 'Text sent');
+        } catch (err) {
+          next = {
+            ...next,
+            smsLog: [
+              {
+                id: generateId(),
+                at: Date.now(),
+                status: newStatus,
+                to: next.customerPhone,
+                ok: false,
+                sid: '',
+                error: err.message || 'Failed',
+                manual: false,
+              },
+              ...(next.smsLog || []),
+            ].slice(0, 20),
+          };
+          notes.push(`Text failed: ${err.message || 'error'}`);
+        }
       }
+
+      if (shouldNotifyCustomerOnStatus(next, company, newStatus)) {
+        try {
+          const variables = buildStatusEmailVariables({
+            customerName: next.customerName,
+            vehicle: next.vehicle,
+            roNumber: next.roNumber,
+            status: newStatus,
+            shopName: company?.name,
+            shopPhone,
+          });
+          const content = buildStatusEmailContent(variables);
+          const result = await sendStatusEmail({
+            to: next.customerEmail,
+            variables,
+            ...content,
+            replyTo: shopReplyEmail || undefined,
+            fromName: company?.name || undefined,
+          });
+          next = {
+            ...next,
+            emailLog: [
+              {
+                id: generateId(),
+                at: Date.now(),
+                status: newStatus,
+                to: result.to || next.customerEmail,
+                ok: true,
+                sid: result.id || '',
+                error: '',
+                manual: false,
+              },
+              ...(next.emailLog || []),
+            ].slice(0, 20),
+          };
+          notes.push('Email sent');
+        } catch (err) {
+          next = {
+            ...next,
+            emailLog: [
+              {
+                id: generateId(),
+                at: Date.now(),
+                status: newStatus,
+                to: next.customerEmail,
+                ok: false,
+                sid: '',
+                error: err.message || 'Failed',
+                manual: false,
+              },
+              ...(next.emailLog || []),
+            ].slice(0, 20),
+          };
+          notes.push(`Email failed: ${err.message || 'error'}`);
+        }
+      }
+
+      if (notes.length) {
+        await persist(next);
+        setSmsMsg(notes.join(' · '));
+        setTimeout(() => setSmsMsg(''), 6000);
+      }
+    } finally {
+      setSmsBusy(false);
     }
   };
 
@@ -748,8 +900,8 @@ export default function JobDetail({ job, onBack }) {
                   <span>
                     <span className="text-sm font-bold block">Allow email updates</span>
                     <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                      Reserved for future email. Share via the share button still uses your device
-                      mail app.
+                      Customer opts in to status emails via Twilio (default off). Needs email feature
+                      on in Master Control + notify list. Manual share still uses your device mail app.
                     </span>
                   </span>
                 </label>
@@ -782,13 +934,12 @@ export default function JobDetail({ job, onBack }) {
                 </select>
                 {shouldNotifyCustomerOnSms(form, company, form.repairStatus) && (
                   <p className="text-[10px] text-emerald-700 dark:text-emerald-300 font-semibold mt-1.5">
-                    Auto text is armed for this status (opt-in + phone + Master Control SMS + notify
-                    list).
+                    Auto text armed (opt-in + phone + SMS feature + notify list).
                   </p>
                 )}
                 {shouldNotifyCustomerOnStatus(form, company, form.repairStatus) && (
-                  <p className="text-[10px] text-slate-500 font-semibold mt-1">
-                    Email notify list matched (email send not enabled yet).
+                  <p className="text-[10px] text-emerald-700 dark:text-emerald-300 font-semibold mt-1">
+                    Auto email armed (opt-in + email + Email feature + notify list).
                   </p>
                 )}
               </Field>
@@ -808,43 +959,60 @@ export default function JobDetail({ job, onBack }) {
               </Field>
             </div>
 
-            {/* Manual status text */}
+            {/* Manual status text / email */}
             <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
               <div className="section-title mb-0">
-                <MessageSquare size={14} /> Text customer
+                <MessageSquare size={14} /> Notify customer
               </div>
-              {!smsEnabled ? (
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  SMS is off for this shop. Turn on <b>Customer status texts</b> in Master Control,
-                  pick notify statuses, and set Twilio env vars on Vercel.
-                </p>
-              ) : (
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  Sends via Twilio. On a <b>30-day trial</b>, Twilio only allows their fixed templates
-                  (not custom RO/vehicle text) and only to <b>verified</b> phone numbers. Upgrade
-                  Twilio when you want real shop wording to any customer.
-                </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                Sends via Twilio. Paid SMS uses your real status wording. Email uses personalized
+                variables (first name, vehicle, RO, status). Turn channels on in Master Control and
+                set Twilio env vars on Vercel.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={smsBusy || !smsEnabled || !form.customerPhone}
+                  onClick={async () => {
+                    try {
+                      await textCustomerStatus(form.repairStatus, { manual: true });
+                    } catch (err) {
+                      alert(err.message || 'Could not send text');
+                    }
+                  }}
+                  className="w-full py-3 rounded-xl text-white text-xs font-black uppercase shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
+                  style={{ backgroundColor: primary }}
+                >
+                  {smsBusy ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <MessageSquare size={16} />
+                  )}
+                  Text status
+                </button>
+                <button
+                  type="button"
+                  disabled={smsBusy || !emailEnabled || !form.customerEmail}
+                  onClick={async () => {
+                    try {
+                      await emailCustomerStatus(form.repairStatus, { manual: true });
+                    } catch (err) {
+                      alert(err.message || 'Could not send email');
+                    }
+                  }}
+                  className="w-full py-3 rounded-xl border-2 text-xs font-black uppercase disabled:opacity-50 flex items-center justify-center gap-2 bg-white dark:bg-slate-900"
+                  style={{ borderColor: primary, color: primary }}
+                >
+                  {smsBusy ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
+                  Email status
+                </button>
+              </div>
+              {!smsEnabled && (
+                <p className="text-[10px] text-slate-400">SMS off — enable in Master Control.</p>
               )}
-              <button
-                type="button"
-                disabled={smsBusy || !smsEnabled || !form.customerPhone}
-                onClick={async () => {
-                  try {
-                    await textCustomerStatus(form.repairStatus, { manual: true });
-                  } catch (err) {
-                    alert(err.message || 'Could not send text');
-                  }
-                }}
-                className="w-full py-3 rounded-xl text-white text-xs font-black uppercase shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
-                style={{ backgroundColor: primary }}
-              >
-                {smsBusy ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  <MessageSquare size={16} />
-                )}
-                Text current status now
-              </button>
+              {!emailEnabled && (
+                <p className="text-[10px] text-slate-400">Email off — enable in Master Control.</p>
+              )}
               {smsMsg && (
                 <p
                   className={`text-xs font-bold ${
@@ -859,7 +1027,7 @@ export default function JobDetail({ job, onBack }) {
               {(form.smsLog || []).length > 0 && (
                 <div className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-slate-700">
                   <div className="text-[10px] font-black uppercase text-slate-400">Recent texts</div>
-                  {(form.smsLog || []).slice(0, 5).map((row) => (
+                  {(form.smsLog || []).slice(0, 4).map((row) => (
                     <div
                       key={row.id}
                       className="text-[10px] text-slate-500 dark:text-slate-400 flex flex-wrap gap-x-2"
@@ -869,6 +1037,26 @@ export default function JobDetail({ job, onBack }) {
                         {row.ok ? 'Sent' : 'Failed'}
                       </span>
                       <span className="truncate">{row.status}</span>
+                      {!row.ok && row.error && (
+                        <span className="text-red-400 w-full">{row.error}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(form.emailLog || []).length > 0 && (
+                <div className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-slate-700">
+                  <div className="text-[10px] font-black uppercase text-slate-400">Recent emails</div>
+                  {(form.emailLog || []).slice(0, 4).map((row) => (
+                    <div
+                      key={row.id}
+                      className="text-[10px] text-slate-500 dark:text-slate-400 flex flex-wrap gap-x-2"
+                    >
+                      <span>{row.at ? new Date(row.at).toLocaleString() : ''}</span>
+                      <span className={row.ok ? 'text-emerald-600 font-bold' : 'text-red-500 font-bold'}>
+                        {row.ok ? 'Sent' : 'Failed'}
+                      </span>
+                      <span className="truncate">{row.to}</span>
                       {!row.ok && row.error && (
                         <span className="text-red-400 w-full">{row.error}</span>
                       )}
