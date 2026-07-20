@@ -196,31 +196,57 @@ export default async function handler(req, res) {
     }
 
     const authorization = twilioBasicAuth();
-    const twilioRes = await fetch('https://comms.twilio.com/v1/Emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${authorization}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+    let twilioRes;
+    try {
+      twilioRes = await fetch('https://comms.twilio.com/v1/Emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${authorization}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      return json(res, 502, {
+        error: `Could not reach Twilio Email API (${err.message || 'network error'})`,
+        hint: 'Network path from Vercel to comms.twilio.com failed. Retry; confirm Email is enabled on your Twilio account.',
+      });
+    }
 
-    const twilioData = await twilioRes.json().catch(() => ({}));
+    const raw = await twilioRes.text();
+    let twilioData = {};
+    try {
+      twilioData = raw ? JSON.parse(raw) : {};
+    } catch {
+      twilioData = { message: raw?.slice(0, 300) || `HTTP ${twilioRes.status}` };
+    }
 
     if (!twilioRes.ok) {
       const msg =
         twilioData?.message ||
         twilioData?.error_message ||
         twilioData?.error ||
+        (Array.isArray(twilioData?.errors) && twilioData.errors[0]?.message) ||
         (typeof twilioData === 'string' ? twilioData : null) ||
         `Twilio Email error ${twilioRes.status}`;
+      const msgStr = String(msg);
+      let hint;
+      if (/sender|from|verif|domain|not allowed|identity/i.test(msgStr)) {
+        hint =
+          'Verify TWILIO_EMAIL_FROM in Twilio Console → Email (domain or single sender). Example values in Twilio samples are placeholders, not real addresses.';
+      } else if (/authenticate|401|unauthorized|20003/i.test(msgStr + twilioRes.status)) {
+        hint =
+          'Auth failed for Email API. Confirm TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN on Vercel match the account where Email is enabled, then Redeploy.';
+      } else if (twilioRes.status === 404 || /not found|not enabled/i.test(msgStr)) {
+        hint =
+          'Twilio Email may not be fully set up on this account. Finish Email onboarding in the Twilio Console, then retry.';
+      }
       return json(res, 502, {
-        error: String(msg),
+        error: msgStr,
         details: twilioData,
-        hint:
-          /sender|from|verif|domain|not allowed/i.test(String(msg))
-            ? 'Verify TWILIO_EMAIL_FROM in Twilio Console (Email / SendGrid sender identity), then try again.'
-            : undefined,
+        httpStatus: twilioRes.status,
+        hint,
       });
     }
 

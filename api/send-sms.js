@@ -191,27 +191,61 @@ function looksLikeUnverifiedError(msg, code) {
   );
 }
 
-async function createTwilioMessage({ authorization, accountSid, to, from, bodyText }) {
+async function createTwilioMessage({
+  authorization,
+  accountSid,
+  to,
+  from,
+  messagingServiceSid,
+  bodyText,
+}) {
   const params = new URLSearchParams();
   params.set('To', to);
-  // Trial docs emphasize To + Body; From still works with a trial number when set
-  if (from) params.set('From', from);
+  // Prefer Messaging Service when set; else From number
+  if (messagingServiceSid) {
+    params.set('MessagingServiceSid', messagingServiceSid);
+  } else if (from) {
+    params.set('From', from);
+  }
   params.set('Body', bodyText);
 
   const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(
     accountSid
   )}/Messages.json`;
 
-  const twilioRes = await fetch(twilioUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: authorization,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: params.toString(),
-  });
+  let twilioRes;
+  try {
+    twilioRes = await fetch(twilioUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: authorization,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString(),
+    });
+  } catch (err) {
+    const fake = {
+      ok: false,
+      status: 0,
+    };
+    return {
+      twilioRes: fake,
+      twilioData: {
+        message: `Could not reach Twilio (${err.message || 'network error'}). Check Vercel logs / internet path to api.twilio.com.`,
+        code: 'NETWORK',
+      },
+    };
+  }
 
-  const twilioData = await twilioRes.json().catch(() => ({}));
+  const raw = await twilioRes.text();
+  let twilioData = {};
+  try {
+    twilioData = raw ? JSON.parse(raw) : {};
+  } catch {
+    twilioData = {
+      message: `Twilio returned non-JSON (HTTP ${twilioRes.status}): ${raw.slice(0, 200)}`,
+    };
+  }
   return { twilioRes, twilioData };
 }
 
@@ -242,6 +276,7 @@ export default async function handler(req, res) {
     const to = toE164(body.to);
     const customMessage = String(body.message || body.body || '').trim();
     const from = toE164(env('TWILIO_FROM_NUMBER'));
+    const messagingServiceSid = env('TWILIO_MESSAGING_SERVICE_SID');
     const forceTrial = isTruthyEnv('TWILIO_TRIAL_MODE');
     const template = trialTemplateId();
 
@@ -256,16 +291,16 @@ export default async function handler(req, res) {
     if (customMessage.length > 1600) {
       return json(res, 400, { error: 'Message is too long (max ~1600 characters).' });
     }
-    if (!from) {
+    if (!from && !messagingServiceSid) {
       return json(res, 500, {
         error:
-          'TWILIO_FROM_NUMBER is not set on the server (your Twilio trial number in E.164, e.g. +15551234567).',
+          'TWILIO_FROM_NUMBER is not set on the server (E.164, e.g. +15551234567). Or set TWILIO_MESSAGING_SERVICE_SID.',
       });
     }
 
     const { authorization, accountSid } = twilioAuthHeader();
 
-    // Trial: Body must be a template id, not custom shop text
+    // Paid accounts: custom body. Trial: template id only.
     const firstBody = forceTrial ? template : customMessage || template;
 
     let { twilioRes, twilioData } = await createTwilioMessage({
@@ -273,6 +308,7 @@ export default async function handler(req, res) {
       accountSid,
       to,
       from,
+      messagingServiceSid,
       bodyText: firstBody,
     });
 
@@ -290,6 +326,7 @@ export default async function handler(req, res) {
         accountSid,
         to,
         from,
+        messagingServiceSid,
         bodyText: template,
       });
       twilioRes = retry.twilioRes;
@@ -302,15 +339,21 @@ export default async function handler(req, res) {
       const twilioMsg =
         twilioData?.message ||
         twilioData?.error_message ||
-        `Twilio error ${twilioRes.status}`;
+        `Twilio error ${twilioRes.status || ''}`.trim();
 
       let hint;
       if (looksLikeUnverifiedError(twilioMsg, twilioData?.code)) {
         hint =
-          'Twilio trial: add this phone under Console → Phone Numbers → Manage → Verified Caller IDs, enter the code, then try again.';
+          'Destination not allowed. On trial: Verified Caller IDs. On paid: check Geographic permissions and A2P 10DLC registration.';
       } else if (looksLikeTrialTemplateError(twilioMsg, twilioData?.code)) {
         hint =
-          'Twilio trial only allows template ids (sms_delivery_updates, etc.). Set TWILIO_TRIAL_MODE=true on Vercel and Redeploy, or Upgrade your Twilio account for custom shop text.';
+          'Trial template restriction. Set TWILIO_TRIAL_MODE=false after upgrading, Redeploy, and send again for custom status text.';
+      } else if (/authenticate|20003|401/i.test(String(twilioMsg) + String(twilioData?.code))) {
+        hint =
+          'Auth failed. Re-copy TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN from Twilio → Account → API keys & tokens into Vercel (no quotes), Redeploy.';
+      } else if (/from|21212|21606|phone number/i.test(String(twilioMsg))) {
+        hint =
+          'From number invalid or not SMS-capable. Set TWILIO_FROM_NUMBER to your Twilio number as +1… exactly as shown in Console.';
       }
 
       return json(res, 502, {

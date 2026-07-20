@@ -1,4 +1,4 @@
-import { getFirebase } from './firebase';
+import { getAuthBearer, parseApiResponse } from './twilioClient';
 
 /** Split "First Last" for Twilio {{ firstName }} / {{ lastName }} variables */
 export function splitCustomerName(fullName) {
@@ -85,33 +85,29 @@ export async function sendStatusEmail({
   replyTo,
   fromName,
 }) {
-  const { auth } = getFirebase();
-  const user = auth?.currentUser;
-  if (!user) throw new Error('You must be signed in to send email.');
-  const idToken = await user.getIdToken();
-
-  const res = await fetch('/api/send-email', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
-    body: JSON.stringify({
-      to,
-      variables,
-      subject,
-      html,
-      text,
-      replyTo,
-      fromName,
-    }),
-  });
-
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const parts = [data.error || `Email failed (${res.status})`];
-    if (data.hint) parts.push(data.hint);
-    throw new Error(parts.join(' '));
+  const idToken = await getAuthBearer();
+  let res;
+  try {
+    res = await fetch('/api/send-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({
+        to,
+        variables,
+        subject,
+        html,
+        text,
+        replyTo,
+        fromName,
+      }),
+    });
+  } catch (err) {
+    throw new Error(
+      `Could not reach Email API (${err.message || 'network'}). Use the live Vercel URL and check your connection.`
+    );
   }
-  return data;
+  return parseApiResponse(res, 'Email');
 }

@@ -52,6 +52,7 @@ import {
   buildStatusEmailContent,
   sendStatusEmail,
 } from '../lib/email';
+import { checkTwilioStatus } from '../lib/twilioClient';
 
 export default function JobDetail({ job, onBack }) {
   const { company, user, profile } = useAuth();
@@ -969,6 +970,38 @@ export default function JobDetail({ job, onBack }) {
                 variables (first name, vehicle, RO, status). Turn channels on in Master Control and
                 set Twilio env vars on Vercel.
               </p>
+              <button
+                type="button"
+                disabled={smsBusy}
+                onClick={async () => {
+                  setSmsBusy(true);
+                  setSmsMsg('');
+                  try {
+                    const st = await checkTwilioStatus();
+                    if (st.ok) {
+                      setSmsMsg(
+                        `Twilio connected${st.config?.friendlyName ? '' : ''}. SMS from: ${
+                          st.config?.fromNumberHint || 'not set'
+                        } · Email from: ${st.config?.emailFromHint || 'not set'}${
+                          st.config?.trialMode ? ' · TRIAL MODE still ON' : ''
+                        }`
+                      );
+                    } else {
+                      setSmsMsg(
+                        (st.nextSteps && st.nextSteps.join(' ')) ||
+                          'Twilio config incomplete — see Vercel env vars.'
+                      );
+                    }
+                  } catch (err) {
+                    setSmsMsg(err.message || 'Twilio status check failed');
+                  } finally {
+                    setSmsBusy(false);
+                  }
+                }}
+                className="w-full py-2 rounded-xl border border-slate-200 dark:border-slate-600 text-[10px] font-black uppercase text-slate-600 dark:text-slate-300"
+              >
+                Test Twilio connection
+              </button>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <button
                   type="button"

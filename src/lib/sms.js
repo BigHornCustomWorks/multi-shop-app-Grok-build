@@ -1,4 +1,4 @@
-import { getFirebase } from './firebase';
+import { getAuthBearer, parseApiResponse } from './twilioClient';
 
 /**
  * Build a short status SMS (aim for 1 segment when possible).
@@ -23,29 +23,23 @@ export function buildStatusSms({ shopName, vehicle, roNumber, status, shopPhone 
  * Requires the user to be signed in (Firebase ID token).
  */
 export async function sendStatusSms({ to, message }) {
-  const { auth } = getFirebase();
-  const user = auth?.currentUser;
-  if (!user) {
-    throw new Error('You must be signed in to send a text.');
+  const idToken = await getAuthBearer();
+  let res;
+  try {
+    res = await fetch('/api/send-sms', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ to, message }),
+    });
+  } catch (err) {
+    throw new Error(
+      `Could not reach SMS API (${err.message || 'network'}). Use the live Vercel URL and check your connection.`
+    );
   }
-  const idToken = await user.getIdToken();
-
-  const res = await fetch('/api/send-sms', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
-    body: JSON.stringify({ to, message }),
-  });
-
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const parts = [data.error || `SMS failed (${res.status})`];
-    if (data.hint) parts.push(data.hint);
-    throw new Error(parts.join(' '));
-  }
-  return data;
+  return parseApiResponse(res, 'SMS');
 }
 
 /** Whether shop feature + job opt-in + phone + status list allow a text. */
