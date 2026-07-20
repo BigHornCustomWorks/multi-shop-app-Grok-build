@@ -14,6 +14,10 @@ import {
   Check,
   Moon,
   Sun,
+  PauseCircle,
+  PlayCircle,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import { APP_NAME } from '../config';
 import { useAuth } from '../context/AuthContext';
@@ -29,6 +33,8 @@ import {
   setUserRole,
   isUserAccountActive,
   ensureInviteCodeIndex,
+  setCompanyActive,
+  deleteCompany,
 } from '../lib/api';
 import {
   defaultCompanySettings,
@@ -172,40 +178,53 @@ export default function MasterControl() {
             {companies.length === 0 && (
               <p className="p-4 text-sm text-slate-400">No shops yet. Create your first customer shop.</p>
             )}
-            {companies.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => {
-                  setSelectedId(c.id);
-                  setMessage('');
-                }}
-                className={`w-full text-left px-4 py-3 border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 flex items-center gap-3 transition-colors ${
-                  selectedId === c.id ? 'bg-blue-50 dark:bg-blue-950/40' : ''
-                }`}
-              >
-                {c.branding?.logoUrl ? (
-                  <img src={c.branding.logoUrl} alt="" className="h-9 w-9 rounded-lg object-cover" />
-                ) : (
-                  <div
-                    className="h-9 w-9 rounded-lg flex items-center justify-center text-white text-sm font-black"
-                    style={{
-                      backgroundColor: c.branding?.primaryColor || DEFAULT_BRANDING.primaryColor,
-                    }}
-                  >
-                    {(c.name || '?').charAt(0).toUpperCase()}
+            {companies.map((c) => {
+              const isPaused = c.active === false;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedId(c.id);
+                    setMessage('');
+                  }}
+                  className={`w-full text-left px-4 py-3 border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 flex items-center gap-3 transition-colors ${
+                    selectedId === c.id ? 'bg-blue-50 dark:bg-blue-950/40' : ''
+                  } ${isPaused ? 'opacity-75' : ''}`}
+                >
+                  {c.branding?.logoUrl ? (
+                    <img
+                      src={c.branding.logoUrl}
+                      alt=""
+                      className={`h-9 w-9 rounded-lg object-cover ${isPaused ? 'grayscale' : ''}`}
+                    />
+                  ) : (
+                    <div
+                      className="h-9 w-9 rounded-lg flex items-center justify-center text-white text-sm font-black"
+                      style={{
+                        backgroundColor: isPaused
+                          ? '#94a3b8'
+                          : c.branding?.primaryColor || DEFAULT_BRANDING.primaryColor,
+                      }}
+                    >
+                      {(c.name || '?').charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold text-sm truncate">{c.name}</div>
+                    <div
+                      className={`text-[10px] font-bold uppercase tracking-wide ${
+                        isPaused ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
+                      }`}
+                    >
+                      {isPaused ? 'Paused' : 'Active'}
+                      {c.features?.invoiceScanner ? ' · AI' : ''}
+                      {c.features?.customerStatusSms ? ' · SMS' : ''}
+                    </div>
                   </div>
-                )}
-                <div className="min-w-0">
-                  <div className="font-bold text-sm truncate">{c.name}</div>
-                  <div className="text-[10px] text-slate-400">
-                    {c.active === false ? 'Inactive' : 'Active'}
-                    {c.features?.invoiceScanner ? ' · AI scan' : ''}
-                    {c.features?.customerStatusSms ? ' · SMS' : ''}
-                  </div>
-                </div>
-              </button>
-            ))}
+                </button>
+              );
+            })}
           </div>
         </aside>
 
@@ -227,6 +246,10 @@ export default function MasterControl() {
               key={selected.id}
               company={selected}
               onSaved={(msg) => setMessage(msg || 'Saved')}
+              onDeleted={() => {
+                setSelectedId(null);
+                setMessage('Shop removed from the list.');
+              }}
             />
           )}
         </main>
@@ -235,7 +258,7 @@ export default function MasterControl() {
   );
 }
 
-function ShopEditor({ company, onSaved }) {
+function ShopEditor({ company, onSaved, onDeleted }) {
   const [name, setName] = useState(company.name || '');
   const [primaryColor, setPrimaryColor] = useState(
     company.branding?.primaryColor || DEFAULT_BRANDING.primaryColor
@@ -268,10 +291,12 @@ function ShopEditor({ company, onSaved }) {
   );
   const [active, setActive] = useState(company.active !== false);
   const [busy, setBusy] = useState(false);
+  const [accessBusy, setAccessBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [users, setUsers] = useState([]);
   const [userBusyId, setUserBusyId] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState('');
 
   const reloadUsers = () => {
     listCompanyUsers(company.id).then(setUsers).catch(console.error);
@@ -359,6 +384,58 @@ function ShopEditor({ company, onSaved }) {
     });
   };
 
+  const pauseOrResume = async () => {
+    const next = !active;
+    const label = next ? 'resume' : 'pause';
+    if (
+      !window.confirm(
+        next
+          ? `Resume “${company.name}”? Staff will be able to sign in and use the app again.`
+          : `Pause “${company.name}”? Staff will see “Shop inactive” and cannot use the app until you resume (e.g. non-payment).`
+      )
+    ) {
+      return;
+    }
+    setAccessBusy(true);
+    try {
+      await setCompanyActive(company.id, next);
+      setActive(next);
+      onSaved(next ? `Shop resumed — staff can use the app.` : `Shop paused — access blocked.`);
+    } catch (err) {
+      onSaved(err.message || `Could not ${label} shop`);
+    } finally {
+      setAccessBusy(false);
+    }
+  };
+
+  const handleDeleteShop = async () => {
+    if (deleteConfirm.trim() !== (company.name || '').trim()) {
+      onSaved('Type the exact shop name to confirm delete.');
+      return;
+    }
+    if (
+      !window.confirm(
+        `Permanently delete “${company.name}” from Master Control?\n\n• Staff will be unlinked\n• Invite code removed\n• Shop disappears from this list\n\nThis cannot be undone from the app.`
+      )
+    ) {
+      return;
+    }
+    setAccessBusy(true);
+    try {
+      const result = await deleteCompany(company.id, company.inviteCode);
+      onSaved(
+        `Deleted “${company.name}” (${result.unlinkedUsers} user${
+          result.unlinkedUsers === 1 ? '' : 's'
+        } unlinked).`
+      );
+      onDeleted?.();
+    } catch (err) {
+      onSaved(err.message || 'Could not delete shop');
+    } finally {
+      setAccessBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       {overSeats && (
@@ -367,6 +444,83 @@ function ShopEditor({ company, onSaved }) {
           stay allowed — bill later. Deactivate unused logins or raise the seat limit / plan.
         </div>
       )}
+
+      {/* Access control — pause / delete */}
+      <div
+        className={`app-card p-5 border-2 ${
+          active
+            ? 'border-slate-200 dark:border-slate-700'
+            : 'border-amber-400 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20'
+        }`}
+      >
+        <h3 className="section-title mb-2">
+          <AlertTriangle size={14} /> Shop access
+        </h3>
+        <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+          <b>Pause</b> when they stop paying — staff cannot open the shop app until you resume.{' '}
+          <b>Delete</b> removes the shop from this list and unlinks staff (use when they leave for
+          good).
+        </p>
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <span
+            className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border ${
+              active
+                ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
+                : 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/50 dark:text-amber-200 dark:border-amber-700'
+            }`}
+          >
+            {active ? 'Live — staff can use app' : 'Paused — access blocked'}
+          </span>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            type="button"
+            disabled={accessBusy}
+            onClick={pauseOrResume}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase shadow-sm disabled:opacity-50 ${
+              active
+                ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+            }`}
+          >
+            {accessBusy ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : active ? (
+              <PauseCircle size={16} />
+            ) : (
+              <PlayCircle size={16} />
+            )}
+            {active ? 'Pause shop' : 'Resume shop'}
+          </button>
+        </div>
+        <div className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-700 space-y-2">
+          <div className="text-[10px] font-black uppercase text-red-600 dark:text-red-400 tracking-wide">
+            Danger zone — delete shop
+          </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+            Type the shop name exactly to enable delete: <b>{company.name}</b>
+          </p>
+          <input
+            className="field text-sm font-bold"
+            placeholder="Type shop name to confirm"
+            value={deleteConfirm}
+            onChange={(e) => setDeleteConfirm(e.target.value)}
+            disabled={accessBusy}
+            autoComplete="off"
+          />
+          <button
+            type="button"
+            disabled={
+              accessBusy || deleteConfirm.trim() !== (company.name || '').trim()
+            }
+            onClick={handleDeleteShop}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase border-2 border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-950/60 disabled:opacity-40"
+          >
+            {accessBusy ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+            Delete shop permanently
+          </button>
+        </div>
+      </div>
 
       <div className="app-card p-5">
         <div className="flex flex-wrap items-start gap-4 justify-between">
@@ -597,7 +751,15 @@ function ShopEditor({ company, onSaved }) {
           </div>
 
           <div className="space-y-3">
-            <ToggleRow label="Shop active" on={active} onToggle={() => setActive((v) => !v)} />
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              Pause / resume is under <b>Shop access</b> at the top (saves immediately). The toggle
+              below is kept in sync when you pause or save settings.
+            </p>
+            <ToggleRow
+              label="Shop active (also in Shop access)"
+              on={active}
+              onToggle={() => setActive((v) => !v)}
+            />
             <ToggleRow
               label="AI invoice scanner (upgrade)"
               on={invoiceScanner}

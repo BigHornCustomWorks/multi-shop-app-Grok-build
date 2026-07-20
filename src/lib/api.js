@@ -257,6 +257,55 @@ export async function updateCompany(companyId, partial) {
   );
 }
 
+/** Pause (false) or resume (true) a shop — staff see “Shop inactive” when paused. */
+export async function setCompanyActive(companyId, active) {
+  if (!companyId) throw new Error('Missing company id');
+  await updateCompany(companyId, {
+    active: Boolean(active),
+    pausedAt: active ? null : Date.now(),
+  });
+}
+
+/**
+ * Permanently remove a shop from Master Control.
+ * - Unlinks all users (companyId → null)
+ * - Removes invite code index
+ * - Deletes company document
+ * Note: job/photo files under the company may remain in Storage until cleaned separately.
+ */
+export async function deleteCompany(companyId, inviteCode) {
+  if (!companyId) throw new Error('Missing company id');
+
+  const users = await listCompanyUsers(companyId);
+  await Promise.all(
+    users.map((u) =>
+      setDoc(
+        doc(db(), 'users', u.id),
+        {
+          companyId: null,
+          role: ROLES.TECH,
+          updatedAt: Date.now(),
+          removedFromCompanyAt: Date.now(),
+          removedFromCompanyId: companyId,
+        },
+        { merge: true }
+      )
+    )
+  );
+
+  const code = String(inviteCode || '').trim().toUpperCase();
+  if (code) {
+    try {
+      await deleteDoc(doc(db(), 'inviteCodes', code));
+    } catch (e) {
+      console.warn('Could not delete invite code index', e);
+    }
+  }
+
+  await deleteDoc(doc(db(), 'companies', companyId));
+  return { unlinkedUsers: users.length };
+}
+
 /** Ensure inviteCodes/{CODE} points at this company (platform admin). */
 export async function ensureInviteCodeIndex(company) {
   if (!company?.id || !company?.inviteCode) return;
