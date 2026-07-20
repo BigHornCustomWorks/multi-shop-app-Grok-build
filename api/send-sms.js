@@ -342,15 +342,31 @@ export default async function handler(req, res) {
         `Twilio error ${twilioRes.status || ''}`.trim();
 
       let hint;
-      if (looksLikeUnverifiedError(twilioMsg, twilioData?.code)) {
+      if (
+        /compliance profile|trust hub|kyc|not approved|customer profile/i.test(
+          String(twilioMsg)
+        )
+      ) {
+        hint =
+          'Twilio Trust Hub / KYC is not approved yet. In Twilio Console open Trust Hub → complete Primary Customer Profile (business info + verification), submit for review, wait for Approved. Then register A2P 10DLC brand/campaign if prompted. This is not a wrong API key.';
+      } else if (looksLikeUnverifiedError(twilioMsg, twilioData?.code)) {
         hint =
           'Destination not allowed. On trial: Verified Caller IDs. On paid: check Geographic permissions and A2P 10DLC registration.';
       } else if (looksLikeTrialTemplateError(twilioMsg, twilioData?.code)) {
         hint =
           'Trial template restriction. Set TWILIO_TRIAL_MODE=false after upgrading, Redeploy, and send again for custom status text.';
-      } else if (/authenticate|20003|401/i.test(String(twilioMsg) + String(twilioData?.code))) {
-        hint =
-          'Auth failed. Re-copy TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN from Twilio → Account → API keys & tokens into Vercel (no quotes), Redeploy.';
+      } else if (
+        twilioData?.code === 20003 ||
+        /authenticate|401/i.test(String(twilioMsg) + String(twilioRes.status))
+      ) {
+        // 20003 is often auth — but compliance messages also appear with it
+        if (/compliance|kyc|trust hub|profile/i.test(String(twilioMsg))) {
+          hint =
+            'Complete KYC in Twilio Trust Hub (Primary Customer Profile must be Approved) before SMS works on a paid account.';
+        } else {
+          hint =
+            'Auth failed. Re-copy TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN from Twilio → Account → API keys & tokens into Vercel (no quotes), Redeploy.';
+        }
       } else if (/from|21212|21606|phone number/i.test(String(twilioMsg))) {
         hint =
           'From number invalid or not SMS-capable. Set TWILIO_FROM_NUMBER to your Twilio number as +1… exactly as shown in Console.';
