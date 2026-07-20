@@ -445,82 +445,11 @@ function ShopEditor({ company, onSaved, onDeleted }) {
         </div>
       )}
 
-      {/* Access control — pause / delete */}
-      <div
-        className={`app-card p-5 border-2 ${
-          active
-            ? 'border-slate-200 dark:border-slate-700'
-            : 'border-amber-400 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20'
-        }`}
-      >
-        <h3 className="section-title mb-2">
-          <AlertTriangle size={14} /> Shop access
-        </h3>
-        <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
-          <b>Pause</b> when they stop paying — staff cannot open the shop app until you resume.{' '}
-          <b>Delete</b> removes the shop from this list and unlinks staff (use when they leave for
-          good).
-        </p>
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          <span
-            className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border ${
-              active
-                ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
-                : 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/50 dark:text-amber-200 dark:border-amber-700'
-            }`}
-          >
-            {active ? 'Live — staff can use app' : 'Paused — access blocked'}
-          </span>
+      {!active && (
+        <div className="p-3 rounded-xl border border-amber-400 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-100 text-xs font-bold">
+          This shop is paused — staff cannot use the app. Scroll to Shop access below Save to resume.
         </div>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <button
-            type="button"
-            disabled={accessBusy}
-            onClick={pauseOrResume}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase shadow-sm disabled:opacity-50 ${
-              active
-                ? 'bg-amber-500 hover:bg-amber-600 text-white'
-                : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-            }`}
-          >
-            {accessBusy ? (
-              <Loader2 size={16} className="animate-spin" />
-            ) : active ? (
-              <PauseCircle size={16} />
-            ) : (
-              <PlayCircle size={16} />
-            )}
-            {active ? 'Pause shop' : 'Resume shop'}
-          </button>
-        </div>
-        <div className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-700 space-y-2">
-          <div className="text-[10px] font-black uppercase text-red-600 dark:text-red-400 tracking-wide">
-            Danger zone — delete shop
-          </div>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-            Type the shop name exactly to enable delete: <b>{company.name}</b>
-          </p>
-          <input
-            className="field text-sm font-bold"
-            placeholder="Type shop name to confirm"
-            value={deleteConfirm}
-            onChange={(e) => setDeleteConfirm(e.target.value)}
-            disabled={accessBusy}
-            autoComplete="off"
-          />
-          <button
-            type="button"
-            disabled={
-              accessBusy || deleteConfirm.trim() !== (company.name || '').trim()
-            }
-            onClick={handleDeleteShop}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase border-2 border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-950/60 disabled:opacity-40"
-          >
-            {accessBusy ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
-            Delete shop permanently
-          </button>
-        </div>
-      </div>
+      )}
 
       <div className="app-card p-5">
         <div className="flex flex-wrap items-start gap-4 justify-between">
@@ -993,6 +922,83 @@ function ShopEditor({ company, onSaved, onDeleted }) {
       <p className="text-[10px] text-slate-400 text-center flex items-center justify-center gap-1">
         <ArrowLeft size={10} /> Shops cannot edit these lists — only Master Control can.
       </p>
+
+      {/* Access control — pause / delete (below save) */}
+      <div
+        className={`app-card p-5 border-2 ${
+          active
+            ? 'border-slate-200 dark:border-slate-700'
+            : 'border-amber-400 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20'
+        }`}
+      >
+        <h3 className="section-title mb-2">
+          <AlertTriangle size={14} /> Shop access
+        </h3>
+        <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+          <b>Pause</b> when they stop paying — staff cannot open the shop app until you resume.{' '}
+          <b>Delete</b> removes the shop from this list and unlinks staff (use when they leave for
+          good).
+        </p>
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <span
+            className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border ${
+              active
+                ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
+                : 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/50 dark:text-amber-200 dark:border-amber-700'
+            }`}
+          >
+            {active ? 'Live — staff can use app' : 'Paused — access blocked'}
+          </span>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            type="button"
+            disabled={accessBusy}
+            onClick={pauseOrResume}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase shadow-sm disabled:opacity-50 ${
+              active
+                ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+            }`}
+          >
+            {accessBusy ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : active ? (
+              <PauseCircle size={16} />
+            ) : (
+              <PlayCircle size={16} />
+            )}
+            {active ? 'Pause shop' : 'Resume shop'}
+          </button>
+        </div>
+        <div className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-700 space-y-2">
+          <div className="text-[10px] font-black uppercase text-red-600 dark:text-red-400 tracking-wide">
+            Danger zone — delete shop
+          </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+            Type the shop name exactly to enable delete: <b>{company.name}</b>
+          </p>
+          <input
+            className="field text-sm font-bold"
+            placeholder="Type shop name to confirm"
+            value={deleteConfirm}
+            onChange={(e) => setDeleteConfirm(e.target.value)}
+            disabled={accessBusy}
+            autoComplete="off"
+          />
+          <button
+            type="button"
+            disabled={
+              accessBusy || deleteConfirm.trim() !== (company.name || '').trim()
+            }
+            onClick={handleDeleteShop}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase border-2 border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-950/60 disabled:opacity-40"
+          >
+            {accessBusy ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+            Delete shop permanently
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
