@@ -371,8 +371,43 @@ function ShopEditor({ company, onSaved, onDeleted }) {
     }
   };
 
-  const patchSettings = (key, value) => {
-    setSettings((s) => ({ ...s, [key]: value }));
+  const [listBusy, setListBusy] = useState(false);
+
+  /** Update local settings; for list fields, also save immediately (drag order). */
+  const patchSettings = async (key, value) => {
+    const nextSettings = { ...settings, [key]: value };
+    setSettings(nextSettings);
+
+    const listKeys = [
+      'vehicleLocations',
+      'partLocations',
+      'repairStatuses',
+      'partStatuses',
+      'returnReasons',
+      'technicians',
+    ];
+    if (!listKeys.includes(key) || !company?.id) return;
+
+    setListBusy(true);
+    try {
+      await updateCompany(company.id, {
+        settings: {
+          ...(company.settings || {}),
+          ...nextSettings,
+          shopPhone: shopPhone.trim(),
+        },
+      });
+      onSaved('List order saved (top of list = first in dropdowns).');
+    } catch (err) {
+      onSaved(err.message || 'Could not save list');
+      setSettings({
+        ...defaultCompanySettings(),
+        ...(company.settings || {}),
+        notifyStatuses: company.settings?.notifyStatuses || [],
+      });
+    } finally {
+      setListBusy(false);
+    }
   };
 
   const toggleNotifyStatus = (status) => {
@@ -700,48 +735,65 @@ function ShopEditor({ company, onSaved, onDeleted }) {
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-4">
-        <EditableList
-          title="Vehicle locations"
-          items={settings.vehicleLocations}
-          onChange={(v) => patchSettings('vehicleLocations', v)}
-          placeholder="e.g. North Lot"
-        />
-        <EditableList
-          title="Parts locations"
-          items={settings.partLocations}
-          onChange={(v) => patchSettings('partLocations', v)}
-          placeholder="e.g. Cage A"
-        />
-        <EditableList
-          title="Repair statuses"
-          items={settings.repairStatuses}
-          onChange={(v) => patchSettings('repairStatuses', v)}
-          placeholder="e.g. Waiting on Insurance"
-        />
-        <EditableList
-          title="Part order statuses"
-          items={settings.partStatuses}
-          onChange={(v) => patchSettings('partStatuses', v)}
-          placeholder="e.g. In Transit"
-        />
-        <EditableList
-          title="Return reasons"
-          items={settings.returnReasons}
-          onChange={(v) => patchSettings('returnReasons', v)}
-          placeholder="e.g. Wrong color"
-        />
-        <div className="md:col-span-2 space-y-2">
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed px-1">
-            <b>Job assignment techs:</b> active team members with the Tech role appear automatically
-            on the shop floor. Use the list below only for names of people who will not use the app.
-          </p>
+      <div className="app-card p-5 space-y-3">
+        <h3 className="section-title mb-0">Dropdown lists & order</h3>
+        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+          Same control as the shop Owner Settings. Expand a list, then drag the <b>⋮⋮</b> handle
+          next to delete to set workflow order — <b>top of the list = first in dropdowns</b> on jobs.
+          Reorder / add / remove saves automatically (you do not need “Save shop settings” for these
+          lists).
+        </p>
+        <div
+          className={`grid md:grid-cols-2 gap-3 ${listBusy ? 'opacity-70 pointer-events-none' : ''}`}
+        >
           <EditableList
-            title="Extra tech names (not app users)"
-            items={settings.technicians}
-            onChange={(v) => patchSettings('technicians', v)}
-            placeholder="Tech name as shown on jobs"
+            title="Vehicle locations"
+            items={settings.vehicleLocations}
+            onChange={(v) => patchSettings('vehicleLocations', v)}
+            placeholder="e.g. North Lot"
+            defaultOpen={false}
           />
+          <EditableList
+            title="Parts locations"
+            items={settings.partLocations}
+            onChange={(v) => patchSettings('partLocations', v)}
+            placeholder="e.g. Cage A"
+            defaultOpen={false}
+          />
+          <EditableList
+            title="Repair statuses"
+            items={settings.repairStatuses}
+            onChange={(v) => patchSettings('repairStatuses', v)}
+            placeholder="e.g. Waiting on Insurance"
+            defaultOpen={false}
+          />
+          <EditableList
+            title="Part order statuses"
+            items={settings.partStatuses}
+            onChange={(v) => patchSettings('partStatuses', v)}
+            placeholder="e.g. In Transit"
+            defaultOpen={false}
+          />
+          <EditableList
+            title="Return reasons"
+            items={settings.returnReasons}
+            onChange={(v) => patchSettings('returnReasons', v)}
+            placeholder="e.g. Wrong color"
+            defaultOpen={false}
+          />
+          <div className="md:col-span-2 space-y-2">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed px-1">
+              <b>Job assignment techs:</b> active team members with the Tech role appear automatically.
+              Use the list below only for people who will not use the app (also drag to order).
+            </p>
+            <EditableList
+              title="Extra tech names (not app users)"
+              items={settings.technicians}
+              onChange={(v) => patchSettings('technicians', v)}
+              placeholder="Tech name as shown on jobs"
+              defaultOpen={false}
+            />
+          </div>
         </div>
       </div>
 
