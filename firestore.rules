@@ -82,7 +82,10 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, create, update: if signedIn() && request.auth.uid == userId && accountActive();
       allow read, update: if isPlatformAdmin();
-      allow read: if isShopAdmin()
+      // Shop members can see teammates (for tech assignment lists, not platform admins)
+      allow read: if accountActive()
+        && userExists()
+        && resource.data.get('companyId', '') is string
         && resource.data.get('companyId', '') == userDoc().companyId
         && resource.data.get('role', '') != 'platform_admin';
       allow update: if shopOwnerManagingStaff();
