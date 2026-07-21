@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Trash2, ChevronDown, ChevronRight, GripVertical } from 'lucide-react';
 
 /**
  * Editable list of strings (locations, statuses, tech names, etc.).
- * Collapsible so Master Control / settings pages stay scannable on small screens.
+ * Collapsible; drag handle next to delete to reorder (dropdown order = list order).
  */
 export default function EditableList({
   title,
@@ -13,15 +13,66 @@ export default function EditableList({
   disabled,
   /** When true, starts expanded. Default collapsed so lists don't fill the page. */
   defaultOpen = false,
+  /** Hint under the list when open */
+  hint,
 }) {
   const [draft, setDraft] = useState('');
   const [open, setOpen] = useState(defaultOpen);
+  const [dragIndex, setDragIndex] = useState(null);
+  const [overIndex, setOverIndex] = useState(null);
   const list = Array.isArray(items) ? items : [];
 
   const add = () => {
     if (!draft.trim() || disabled) return;
     onChange([...list, draft.trim()]);
     setDraft('');
+  };
+
+  const moveItem = (from, to) => {
+    if (from === to || from == null || to == null) return;
+    if (from < 0 || to < 0 || from >= list.length || to >= list.length) return;
+    const next = [...list];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    onChange(next);
+  };
+
+  const onDragStart = (e, idx) => {
+    if (disabled) return;
+    setDragIndex(idx);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(idx));
+    // Firefox needs data set
+    try {
+      e.dataTransfer.setData('application/x-index', String(idx));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const onDragOver = (e, idx) => {
+    if (disabled || dragIndex == null) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (overIndex !== idx) setOverIndex(idx);
+  };
+
+  const onDrop = (e, idx) => {
+    e.preventDefault();
+    if (disabled) return;
+    let from = dragIndex;
+    if (from == null) {
+      const raw = e.dataTransfer.getData('text/plain');
+      from = raw !== '' ? Number(raw) : null;
+    }
+    moveItem(from, idx);
+    setDragIndex(null);
+    setOverIndex(null);
+  };
+
+  const onDragEnd = () => {
+    setDragIndex(null);
+    setOverIndex(null);
   };
 
   return (
@@ -58,7 +109,11 @@ export default function EditableList({
 
       {open && (
         <div className="px-4 pb-4 pt-0 border-t border-slate-100 dark:border-slate-700/80">
-          <div className="flex gap-2 mb-3 mt-3">
+          <p className="text-[10px] text-slate-400 mt-2 mb-2 leading-relaxed">
+            {hint ||
+              'Drag ⋮⋮ next to delete to change order — top of list appears first in dropdowns.'}
+          </p>
+          <div className="flex gap-2 mb-3">
             <input
               className="field flex-1 text-sm"
               value={draft}
@@ -81,21 +136,50 @@ export default function EditableList({
               Add
             </button>
           </div>
-          <div className="space-y-2 max-h-48 overflow-y-auto">
+          <div className="space-y-2 max-h-56 overflow-y-auto">
             {list.map((item, idx) => (
               <div
                 key={`${item}-${idx}`}
-                className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-slate-100 dark:border-slate-700"
+                draggable={!disabled}
+                onDragStart={(e) => onDragStart(e, idx)}
+                onDragOver={(e) => onDragOver(e, idx)}
+                onDrop={(e) => onDrop(e, idx)}
+                onDragEnd={onDragEnd}
+                className={`flex justify-between items-center gap-2 p-2.5 sm:p-3 rounded-xl border transition-colors ${
+                  dragIndex === idx
+                    ? 'opacity-50 border-blue-400 bg-blue-50 dark:bg-blue-950/30'
+                    : overIndex === idx && dragIndex != null
+                      ? 'border-blue-400 bg-blue-50/80 dark:bg-blue-950/40 ring-1 ring-blue-300'
+                      : 'bg-slate-50 dark:bg-slate-800/80 border-slate-100 dark:border-slate-700'
+                } ${disabled ? '' : 'cursor-grab active:cursor-grabbing'}`}
               >
-                <span className="text-sm font-semibold">{item}</span>
+                <span className="text-sm font-semibold min-w-0 flex-1 break-words">{item}</span>
                 {!disabled && (
-                  <button
-                    type="button"
-                    onClick={() => onChange(list.filter((_, i) => i !== idx))}
-                    className="text-slate-300 hover:text-red-500 transition-colors"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <button
+                      type="button"
+                      draggable
+                      onDragStart={(e) => {
+                        e.stopPropagation();
+                        onDragStart(e, idx);
+                      }}
+                      onClick={(e) => e.preventDefault()}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/80 dark:hover:bg-slate-700 cursor-grab active:cursor-grabbing touch-none"
+                      title="Drag to reorder"
+                      aria-label={`Drag to reorder ${item}`}
+                    >
+                      <GripVertical size={18} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onChange(list.filter((_, i) => i !== idx))}
+                      className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                      title="Delete"
+                      aria-label={`Delete ${item}`}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 )}
               </div>
             ))}

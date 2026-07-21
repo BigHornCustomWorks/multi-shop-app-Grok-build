@@ -20,6 +20,7 @@ import {
   countActiveSeats,
   roleLabel,
   OWNER_ASSIGNABLE_ROLES,
+  defaultCompanySettings,
 } from '../lib/constants';
 import {
   listCompanyUsers,
@@ -45,8 +46,11 @@ export default function ShopAccount({ onBack }) {
   const [userBusyId, setUserBusyId] = useState(null);
   const [copied, setCopied] = useState(false);
   const [staffMsg, setStaffMsg] = useState('');
-  const [technicians, setTechnicians] = useState(company?.settings?.technicians || []);
-  const [techBusy, setTechBusy] = useState(false);
+  const [settings, setSettings] = useState(() => ({
+    ...defaultCompanySettings(),
+    ...(company?.settings || {}),
+  }));
+  const [settingsBusy, setSettingsBusy] = useState(false);
 
   const reloadUsers = () => {
     if (!company?.id) return;
@@ -61,8 +65,11 @@ export default function ShopAccount({ onBack }) {
   const overSeats = canManageTeam && activeSeats > Number(seatLimit || 0);
 
   useEffect(() => {
-    setTechnicians(company?.settings?.technicians || []);
-  }, [company?.id, company?.settings?.technicians]);
+    setSettings({
+      ...defaultCompanySettings(),
+      ...(company?.settings || {}),
+    });
+  }, [company?.id, company?.settings]);
 
   const copyInvite = async () => {
     try {
@@ -74,23 +81,28 @@ export default function ShopAccount({ onBack }) {
     }
   };
 
-  const saveTechNames = async (list) => {
-    setTechnicians(list);
+  const patchSettings = async (key, value) => {
+    const next = { ...settings, [key]: value };
+    setSettings(next);
     if (!company?.id) return;
-    setTechBusy(true);
+    setSettingsBusy(true);
     try {
       await updateCompany(company.id, {
         settings: {
           ...(company.settings || {}),
-          technicians: list,
+          ...next,
         },
       });
-      setStaffMsg('Technician list saved.');
+      setStaffMsg('List saved (order applies to dropdowns).');
       setTimeout(() => setStaffMsg(''), 2500);
     } catch (err) {
-      setStaffMsg(err.message || 'Could not save tech names');
+      setStaffMsg(err.message || 'Could not save list');
+      setSettings({
+        ...defaultCompanySettings(),
+        ...(company?.settings || {}),
+      });
     } finally {
-      setTechBusy(false);
+      setSettingsBusy(false);
     }
   };
 
@@ -352,6 +364,61 @@ export default function ShopAccount({ onBack }) {
               )}
             </div>
 
+            <div className="app-card p-5 space-y-3 lg:col-span-2">
+              <div className="section-title">Dropdown lists & order</div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                These control location, status, and return options on jobs. Drag the{' '}
+                <b>⋮⋮</b> handle next to delete to put them in your shop’s workflow order (top =
+                first in the dropdown). Changes save when you reorder or add/remove.
+              </p>
+              {staffMsg && (
+                <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                  {staffMsg}
+                </p>
+              )}
+              <div
+                className={`grid md:grid-cols-2 gap-3 ${
+                  settingsBusy ? 'opacity-70 pointer-events-none' : ''
+                }`}
+              >
+                <EditableList
+                  title="Vehicle locations"
+                  items={settings.vehicleLocations}
+                  onChange={(v) => patchSettings('vehicleLocations', v)}
+                  placeholder="e.g. North Lot"
+                  defaultOpen={false}
+                />
+                <EditableList
+                  title="Repair statuses"
+                  items={settings.repairStatuses}
+                  onChange={(v) => patchSettings('repairStatuses', v)}
+                  placeholder="e.g. Waiting on Insurance"
+                  defaultOpen={false}
+                />
+                <EditableList
+                  title="Parts locations"
+                  items={settings.partLocations}
+                  onChange={(v) => patchSettings('partLocations', v)}
+                  placeholder="e.g. Cage A"
+                  defaultOpen={false}
+                />
+                <EditableList
+                  title="Part order statuses"
+                  items={settings.partStatuses}
+                  onChange={(v) => patchSettings('partStatuses', v)}
+                  placeholder="e.g. In Transit"
+                  defaultOpen={false}
+                />
+                <EditableList
+                  title="Return reasons"
+                  items={settings.returnReasons}
+                  onChange={(v) => patchSettings('returnReasons', v)}
+                  placeholder="e.g. Wrong color"
+                  defaultOpen={false}
+                />
+              </div>
+            </div>
+
             <div className="app-card p-5 space-y-3">
               <div className="section-title">Techs for job assignment</div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
@@ -378,11 +445,11 @@ export default function ShopAccount({ onBack }) {
                   </p>
                 );
               })()}
-              <div className={techBusy ? 'opacity-60 pointer-events-none' : ''}>
+              <div className={settingsBusy ? 'opacity-60 pointer-events-none' : ''}>
                 <EditableList
                   title="Extra tech names (not on the app)"
-                  items={technicians}
-                  onChange={saveTechNames}
+                  items={settings.technicians}
+                  onChange={(v) => patchSettings('technicians', v)}
                   placeholder="Name as shown on jobs"
                   defaultOpen={false}
                 />
