@@ -175,16 +175,47 @@ export const SCAN_MODES = {
   },
 };
 
-/** Prefer Grok/xAI; accept older env names for convenience */
+/**
+ * Prefer Grok/xAI; accept older env names for convenience.
+ * Strips quotes/whitespace that break Bearer auth when pasted into Vercel.
+ */
 export function getInvoiceApiKey() {
-  return (
+  const raw =
     import.meta.env.VITE_XAI_API_KEY ||
     import.meta.env.VITE_GROK_API_KEY ||
     import.meta.env.VITE_GEMINI_API_KEY ||
-    ''
-  );
+    '';
+  let key = String(raw).trim();
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1).trim();
+  }
+  // Accidental "Bearer xxx" paste
+  if (/^bearer\s+/i.test(key)) {
+    key = key.replace(/^bearer\s+/i, '').trim();
+  }
+  return key;
+}
+
+/** Soft check — xAI keys are usually long and often start with xai- */
+export function invoiceApiKeyLooksValid(key = getInvoiceApiKey()) {
+  const k = String(key || '').trim();
+  if (!k) return { ok: false, reason: 'missing' };
+  if (k.length < 20) return { ok: false, reason: 'too_short' };
+  // Don't hard-require xai- prefix (formats change), but flag obvious mistakes
+  if (/^(AIza|sk-|pk_)/i.test(k)) {
+    return { ok: false, reason: 'wrong_provider' };
+  }
+  return { ok: true, reason: 'ok', length: k.length, prefix: k.slice(0, 4) };
 }
 
 export function invoiceApiKeyHint() {
-  return 'Set VITE_XAI_API_KEY (or VITE_GROK_API_KEY) in a .env file and restart the dev server.';
+  return (
+    'Vercel: Project → Settings → Environment Variables → Name must be exactly VITE_XAI_API_KEY ' +
+    '(Value = key only, no quotes). Check Production + Preview. Then Deployments → Redeploy ' +
+    '(VITE_ vars are baked in at build time — editing env alone is not enough). ' +
+    'Key from https://console.x.ai — copy the secret once when created (often starts with xai-).'
+  );
 }

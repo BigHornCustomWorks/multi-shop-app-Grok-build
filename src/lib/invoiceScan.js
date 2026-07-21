@@ -22,21 +22,65 @@ function visionModel() {
  * @param {'parts_invoice'|'ccc_estimate'} mode
  */
 export async function scanDocumentWithGrok(apiKey, file, mode = 'parts_invoice') {
+  let key = String(apiKey || '').trim();
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1).trim();
+  }
+  if (!key) {
+    throw new Error(
+      'No xAI API key in this build. Set VITE_XAI_API_KEY on Vercel and Redeploy the project.'
+    );
+  }
+
   const scanMode = SCAN_MODES[mode] || SCAN_MODES.parts_invoice;
   const { base64, mimeType } = await fileToBase64(file);
   const model = visionModel();
   const dataUrl = `data:${mimeType};base64,${base64}`;
 
   // Prefer Responses API (current docs for image understanding with grok-4.5)
-  let text = await tryResponsesApi(apiKey, model, scanMode, dataUrl);
+  let text;
+  try {
+    text = await tryResponsesApi(key, model, scanMode, dataUrl);
+  } catch (err) {
+    if (isAuthError(err)) throw formatAuthError(err);
+    // Fall through to chat API for some failures
+    text = null;
+  }
   if (!text) {
-    text = await tryChatCompletionsApi(apiKey, model, scanMode, dataUrl);
+    try {
+      text = await tryChatCompletionsApi(key, model, scanMode, dataUrl);
+    } catch (err) {
+      if (isAuthError(err)) throw formatAuthError(err);
+      throw err;
+    }
   }
   if (!text || typeof text !== 'string') {
     throw new Error('No text returned from Grok vision.');
   }
 
   return parseInvoiceJson(text);
+}
+
+function isAuthError(err) {
+  const m = String(err?.message || err || '');
+  return /incorrect api key|invalid api key|unauthorized|401|authentication/i.test(m);
+}
+
+function formatAuthError(err) {
+  const m = String(err?.message || err || 'Incorrect API key');
+  return new Error(
+    `${m}\n\n` +
+      'Fix checklist:\n' +
+      '1) Vercel env NAME must be exactly: VITE_XAI_API_KEY\n' +
+      '2) VALUE = only the secret from console.x.ai (no quotes, no spaces, no "Bearer ")\n' +
+      '3) Enable Production (and Preview if you use preview URLs)\n' +
+      '4) Deployments → ⋯ → Redeploy (do NOT skip build cache if the key just changed — force a new build)\n' +
+      '5) Hard-refresh the phone/browser (or clear site data) so you are not on an old JS bundle\n' +
+      '6) Confirm the key works at https://console.x.ai and has credits'
+  );
 }
 
 async function tryResponsesApi(apiKey, model, scanMode, dataUrl) {
@@ -73,15 +117,19 @@ async function tryResponsesApi(apiKey, model, scanMode, dataUrl) {
 
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    // Fall through to chat API for older key/model combos
-    if (response.status === 404 || /model|not found/i.test(String(result?.error?.message || ''))) {
-      return null;
-    }
     const msg =
       result?.error?.message ||
       result?.error ||
       `Document scan failed (${response.status})`;
-    throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    const str = typeof msg === 'string' ? msg : JSON.stringify(msg);
+    // Fall through to chat API for model/route issues only
+    if (
+      response.status === 404 ||
+      (/model|not found|not supported/i.test(str) && !/api key|unauthorized/i.test(str))
+    ) {
+      return null;
+    }
+    throw new Error(str);
   }
 
   return extractResponsesText(result);
