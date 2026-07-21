@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import FirebaseSetup from './pages/FirebaseSetup';
@@ -10,11 +10,26 @@ import JobDetail from './pages/JobDetail';
 import ShopAccount from './pages/ShopAccount';
 import PartsInbox from './pages/PartsInbox';
 import { APP_NAME } from './config';
+import { ROLES } from './lib/constants';
 
 export default function App() {
-  const { ready, loading, firebaseOk, user, profile, company, isPlatformAdmin } = useAuth();
-  const [view, setView] = useState('dashboard'); // dashboard | detail | account | parts
+  const { ready, loading, firebaseOk, user, profile, company, isPlatformAdmin, isPartsManager } =
+    useAuth();
+  /** Parts managers land on parts inbox; others on job list */
+  const defaultView =
+    !isPlatformAdmin && profile?.role === ROLES.PARTS_MANAGER ? 'parts' : 'dashboard';
+  const [view, setView] = useState(defaultView); // dashboard | detail | account | parts
   const [currentJob, setCurrentJob] = useState(null);
+  const [homeReady, setHomeReady] = useState(false);
+
+  // After profile loads, send pure parts managers to parts home once
+  useEffect(() => {
+    if (!ready || loading || !profile || isPlatformAdmin || homeReady) return;
+    if (profile.role === ROLES.PARTS_MANAGER) {
+      setView('parts');
+    }
+    setHomeReady(true);
+  }, [ready, loading, profile, isPlatformAdmin, homeReady]);
 
   if (!firebaseOk) {
     return <FirebaseSetup />;
@@ -58,27 +73,45 @@ export default function App() {
     );
   }
 
+  const goJobsHome = () => {
+    setCurrentJob(null);
+    setView('dashboard');
+  };
+
   if (view === 'detail' && currentJob) {
     return (
       <JobDetail
         job={currentJob}
-        onBack={() => {
-          setCurrentJob(null);
-          setView('dashboard');
-        }}
+        onBack={goJobsHome}
       />
     );
   }
 
   if (view === 'account') {
-    return <ShopAccount onBack={() => setView('dashboard')} />;
+    return (
+      <ShopAccount
+        onBack={() =>
+          setView(profile?.role === ROLES.PARTS_MANAGER ? 'parts' : 'dashboard')
+        }
+      />
+    );
   }
 
   if (view === 'parts') {
     return (
       <PartsInbox
-        onBack={() => setView('dashboard')}
-        onOpenJob={() => setView('dashboard')}
+        onBack={goJobsHome}
+        onOpenJobs={goJobsHome}
+        onOpenJob={(job) => {
+          if (job && typeof job === 'object' && job.id) {
+            setCurrentJob(job);
+            setView('detail');
+          } else {
+            goJobsHome();
+          }
+        }}
+        isPartsHome={isPartsManager || profile?.role === ROLES.PARTS_MANAGER}
+        onOpenSettings={() => setView('account')}
       />
     );
   }

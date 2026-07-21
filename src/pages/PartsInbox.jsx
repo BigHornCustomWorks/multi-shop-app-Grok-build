@@ -2,16 +2,18 @@ import React, { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   Package,
-  AlertTriangle,
   Check,
   Clock,
-  X,
   Loader2,
+  Briefcase,
+  Settings,
+  ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
   subscribePartRequests,
   updatePartRequest,
+  getJob,
 } from '../lib/api';
 import { DEFAULT_BRANDING } from '../lib/constants';
 
@@ -22,7 +24,13 @@ const FILTERS = [
   { id: 'all', label: 'All' },
 ];
 
-export default function PartsInbox({ onBack, onOpenJob }) {
+export default function PartsInbox({
+  onBack,
+  onOpenJobs,
+  onOpenJob,
+  isPartsHome,
+  onOpenSettings,
+}) {
   const { company, profile, user } = useAuth();
   const primary = company?.branding?.primaryColor || DEFAULT_BRANDING.primaryColor;
   const [requests, setRequests] = useState([]);
@@ -30,6 +38,7 @@ export default function PartsInbox({ onBack, onOpenJob }) {
   const [busyId, setBusyId] = useState(null);
   const [lightbox, setLightbox] = useState(null);
   const [error, setError] = useState('');
+  const [openingJobId, setOpeningJobId] = useState(null);
 
   useEffect(() => {
     if (!company?.id) return undefined;
@@ -69,18 +78,40 @@ export default function PartsInbox({ onBack, onOpenJob }) {
     }
   };
 
+  const openLinkedJob = async (req) => {
+    if (!company?.id || !req.jobId || !onOpenJob) {
+      onOpenJobs?.();
+      return;
+    }
+    setOpeningJobId(req.id);
+    try {
+      const job = await getJob(company.id, req.jobId);
+      if (job) onOpenJob(job);
+      else {
+        alert('Job not found (may have been deleted). Opening jobs list.');
+        onOpenJobs?.();
+      }
+    } catch (err) {
+      alert(err.message || 'Could not open job');
+    } finally {
+      setOpeningJobId(null);
+    }
+  };
+
   return (
     <div className="app-shell">
       <div className="app-frame app-frame--wide flex flex-col">
         <header className="app-header sticky top-0 z-20">
           <div className="app-page-pad py-3 lg:py-4 flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onBack}
-              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full"
-            >
-              <ArrowLeft size={20} />
-            </button>
+            {!isPartsHome && (
+              <button
+                type="button"
+                onClick={onBack}
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full"
+              >
+                <ArrowLeft size={20} />
+              </button>
+            )}
             <div className="flex-1 min-w-0">
               <div className="font-black text-base lg:text-lg flex items-center gap-2">
                 <Package size={20} style={{ color: primary }} />
@@ -88,8 +119,28 @@ export default function PartsInbox({ onBack, onOpenJob }) {
               </div>
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
                 {filtered.length} shown
+                {isPartsHome ? ' · your home' : ''}
               </p>
             </div>
+            <button
+              type="button"
+              onClick={() => onOpenJobs?.() || onBack?.()}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wide border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 shrink-0"
+              title="Jobs dashboard — update part locations on vehicles"
+            >
+              <Briefcase size={14} />
+              Jobs
+            </button>
+            {onOpenSettings && (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                title="Account"
+              >
+                <Settings size={18} />
+              </button>
+            )}
           </div>
           <div className="app-page-pad pb-3 flex gap-1 overflow-x-auto">
             {FILTERS.map((f) => (
@@ -122,7 +173,7 @@ export default function PartsInbox({ onBack, onOpenJob }) {
                 No {filter === 'all' ? '' : filter} requests
               </p>
               <p className="text-xs text-slate-400 mt-1">
-                Techs submit requests from a job file.
+                Techs use <b>Request part</b> on job cards on the Jobs board.
               </p>
             </div>
           ) : (
@@ -145,6 +196,22 @@ export default function PartsInbox({ onBack, onOpenJob }) {
                         .filter(Boolean)
                         .join(' · ') || 'No job labels'}
                     </div>
+                    {req.jobId && (
+                      <button
+                        type="button"
+                        disabled={openingJobId === req.id}
+                        onClick={() => openLinkedJob(req)}
+                        className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide"
+                        style={{ color: primary }}
+                      >
+                        {openingJobId === req.id ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <ExternalLink size={12} />
+                        )}
+                        Open job (locations)
+                      </button>
+                    )}
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     {req.urgency === 'urgent' && (

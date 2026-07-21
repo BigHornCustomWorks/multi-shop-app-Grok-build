@@ -418,6 +418,13 @@ export async function saveJob(companyId, jobData) {
   return payload;
 }
 
+export async function getJob(companyId, jobId) {
+  if (!companyId || !jobId) return null;
+  const snap = await getDoc(doc(db(), 'companies', companyId, 'jobs', jobId));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...snap.data() };
+}
+
 export async function deleteJob(companyId, jobId) {
   await deleteDoc(doc(db(), 'companies', companyId, 'jobs', jobId));
 }

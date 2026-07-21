@@ -20,6 +20,7 @@ import {
 import { DEFAULT_BRANDING, pillStyle } from '../lib/constants';
 import { APP_NAME } from '../config';
 import PillSelect from '../components/PillSelect';
+import PartRequestModal from '../components/PartRequestModal';
 
 function partsNeedingReturn(job) {
   return (job.parts || []).filter((p) => p.isReturning);
@@ -46,6 +47,7 @@ export default function Dashboard({ onOpenJob, onOpenSettings, onOpenParts }) {
   const [search, setSearch] = useState('');
   const [dbStatus, setDbStatus] = useState('connecting');
   const [openPartsCount, setOpenPartsCount] = useState(0);
+  const [requestJob, setRequestJob] = useState(null);
 
   const settings = company?.settings || {};
   const technicians = settings.technicians || [];
@@ -466,12 +468,36 @@ export default function Dashboard({ onOpenJob, onOpenSettings, onOpenParts }) {
                     className="w-full"
                   />
                 </div>
+
+                {/* Request part without opening the full job (job info prefilled) */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRequestJob(job);
+                  }}
+                  className="mt-2.5 w-full py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wide flex items-center justify-center gap-1.5 border-2 transition-colors"
+                  style={{ borderColor: primary, color: primary }}
+                >
+                  <Package size={14} />
+                  Request part
+                </button>
               </div>
             );
           })}
           </div>
         )}
       </main>
+
+      {requestJob && (
+        <PartRequestModal
+          job={requestJob}
+          onClose={() => setRequestJob(null)}
+          onSent={() => {
+            /* optional: could toast */
+          }}
+        />
+      )}
 
       </div>
     </div>
