@@ -17,11 +17,30 @@ function visionModel() {
 
 /**
  * Call xAI Grok vision and return parsed document JSON.
- * @param {string} apiKey
+ * On Vercel, prefers /api/scan-document (server-side XAI_API_KEY — not baked into the phone app).
+ * Local dev can still use a browser key via VITE_XAI_API_KEY if the API route is unavailable.
+ *
+ * @param {string} apiKey — optional client key (local only)
  * @param {File} file
  * @param {'parts_invoice'|'ccc_estimate'} mode
  */
 export async function scanDocumentWithGrok(apiKey, file, mode = 'parts_invoice') {
+  const { base64, mimeType } = await fileToBase64(file);
+  const dataUrl = `data:${mimeType};base64,${base64}`;
+
+  // 1) Server proxy — uses XAI_API_KEY / VITE_XAI_API_KEY from Vercel server env
+  try {
+    return await scanViaServer(dataUrl, mode);
+  } catch (err) {
+    const msg = String(err?.message || err || '');
+    // If API missing (local vite without vercel dev), fall back to client key
+    const canFallback =
+      /api route not found|got html|failed to fetch|network/i.test(msg) && apiKey;
+    if (!canFallback) throw err;
+    console.warn('scan-document API unavailable, trying client key', msg);
+  }
+
+  // 2) Direct browser call (local .env only — not recommended for production)
   let key = String(apiKey || '').trim();
   if (
     (key.startsWith('"') && key.endsWith('"')) ||
@@ -31,22 +50,18 @@ export async function scanDocumentWithGrok(apiKey, file, mode = 'parts_invoice')
   }
   if (!key) {
     throw new Error(
-      'No xAI API key in this build. Set VITE_XAI_API_KEY on Vercel and Redeploy the project.'
+      'Scan API failed and no browser key is available. On Vercel set XAI_API_KEY (preferred) or VITE_XAI_API_KEY and Redeploy.'
     );
   }
 
   const scanMode = SCAN_MODES[mode] || SCAN_MODES.parts_invoice;
-  const { base64, mimeType } = await fileToBase64(file);
   const model = visionModel();
-  const dataUrl = `data:${mimeType};base64,${base64}`;
 
-  // Prefer Responses API (current docs for image understanding with grok-4.5)
   let text;
   try {
     text = await tryResponsesApi(key, model, scanMode, dataUrl);
   } catch (err) {
     if (isAuthError(err)) throw formatAuthError(err);
-    // Fall through to chat API for some failures
     text = null;
   }
   if (!text) {
@@ -64,6 +79,48 @@ export async function scanDocumentWithGrok(apiKey, file, mode = 'parts_invoice')
   return parseInvoiceJson(text);
 }
 
+async function scanViaServer(dataUrl, mode) {
+  const { getFirebase } = await import('./firebase');
+  const { auth } = getFirebase();
+  const user = auth?.currentUser;
+  if (!user) throw new Error('You must be signed in to scan documents.');
+  const idToken = await user.getIdToken();
+
+  const res = await fetch('/api/scan-document', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({ mode, imageDataUrl: dataUrl }),
+  });
+
+  const raw = await res.text();
+  let body = {};
+  try {
+    body = raw ? JSON.parse(raw) : {};
+  } catch {
+    if (/^\s*</.test(raw) || res.status === 404) {
+      throw new Error(
+        'Scan API route not found (got HTML). Redeploy so /api/scan-document is live on Vercel.'
+      );
+    }
+    throw new Error(`Scan API returned non-JSON (HTTP ${res.status})`);
+  }
+
+  if (!res.ok) {
+    const parts = [body.error || `Scan failed (HTTP ${res.status})`];
+    if (body.hint) parts.push(body.hint);
+    if (body.keyLength != null) {
+      parts.push(`(server key length ${body.keyLength}, prefix ${body.keyPrefix || '?'})`);
+    }
+    throw new Error(parts.join('\n'));
+  }
+
+  if (!body.data) throw new Error('Scan API returned no data.');
+  return body.data;
+}
+
 function isAuthError(err) {
   const m = String(err?.message || err || '');
   return /incorrect api key|invalid api key|unauthorized|401|authentication/i.test(m);
@@ -74,12 +131,12 @@ function formatAuthError(err) {
   return new Error(
     `${m}\n\n` +
       'Fix checklist:\n' +
-      '1) Vercel env NAME must be exactly: VITE_XAI_API_KEY\n' +
-      '2) VALUE = only the secret from console.x.ai (no quotes, no spaces, no "Bearer ")\n' +
-      '3) Enable Production (and Preview if you use preview URLs)\n' +
-      '4) Deployments → ⋯ → Redeploy (do NOT skip build cache if the key just changed — force a new build)\n' +
-      '5) Hard-refresh the phone/browser (or clear site data) so you are not on an old JS bundle\n' +
-      '6) Confirm the key works at https://console.x.ai and has credits'
+      '1) Prefer server key: Vercel env NAME = XAI_API_KEY (Value = xai-… only)\n' +
+      '2) You can also set VITE_XAI_API_KEY — both work on the server now\n' +
+      '3) No quotes/spaces; Production checked; Redeploy\n' +
+      '4) Delete duplicate old keys in Vercel if you recreated them\n' +
+      '5) Confirm key at https://console.x.ai has credits\n' +
+      '6) Open https://YOUR-SITE/api/scan-document while signed out — should return JSON about key status (GET)'
   );
 }
 
