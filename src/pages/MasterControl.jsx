@@ -804,14 +804,9 @@ function ShopEditor({ company, onSaved, onDeleted }) {
                           const role = e.target.value;
                           setUserBusyId(u.id);
                           try {
-                            await setUserRole(u.id, role);
-                            const labels = {
-                              [ROLES.SHOP_ADMIN]: 'shop admin',
-                              [ROLES.PARTS_MANAGER]: 'parts manager',
-                              [ROLES.TECH]: 'tech',
-                            };
+                            await setUserRole(u.id, role, { allowOwner: true });
                             onSaved(
-                              `${u.displayName || u.email} is now ${labels[role] || role}.`
+                              `${u.displayName || u.email} is now ${roleLabel(role)}.`
                             );
                             reloadUsers();
                           } catch (err) {
@@ -824,7 +819,7 @@ function ShopEditor({ company, onSaved, onDeleted }) {
                       >
                         <option value={ROLES.TECH}>Tech</option>
                         <option value={ROLES.PARTS_MANAGER}>Parts manager</option>
-                        <option value={ROLES.SHOP_ADMIN}>Shop admin</option>
+                        <option value={ROLES.SHOP_ADMIN}>Owner (shop manager)</option>
                       </select>
                     </label>
                     {accountOn ? (
