@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { APP_NAME } from '../config';
+import { APP_NAME, PLATFORM_ADMIN_EMAIL } from '../config';
 import {
   DEFAULT_BRANDING,
   ROLES,
@@ -445,7 +445,7 @@ export default function ShopAccount({ onBack }) {
           </p>
           <a
             href={
-              'mailto:Clint@BigHornCustomWorks.com' +
+              `mailto:${PLATFORM_ADMIN_EMAIL}` +
               '?subject=' +
               encodeURIComponent('Custom Shop Management — suggestion') +
               '&body=' +
@@ -457,7 +457,7 @@ export default function ShopAccount({ onBack }) {
             style={{ color: primary }}
           >
             <Mail size={18} />
-            Clint@BigHornCustomWorks.com
+            {PLATFORM_ADMIN_EMAIL}
           </a>
         </div>
 
