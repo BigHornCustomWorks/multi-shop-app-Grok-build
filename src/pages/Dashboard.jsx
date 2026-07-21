@@ -381,7 +381,7 @@ export default function Dashboard({ onOpenJob, onOpenSettings, onOpenParts }) {
                     : ''
                 }`}
               >
-                {/* Two columns: left = customer/vehicle/damage; right = days, tech, RO */}
+                {/* Two columns: left = customer/vehicle/damage; right = days + compact req, tech, RO */}
                 <div className="flex gap-2 items-start">
                   <div className="min-w-0 flex-1">
                     <div className="font-bold text-[15px] sm:text-base text-slate-900 dark:text-slate-50 truncate leading-tight">
@@ -418,19 +418,35 @@ export default function Dashboard({ onOpenJob, onOpenSettings, onOpenParts }) {
                   </div>
 
                   <div className="flex flex-col items-end gap-1 shrink-0 max-w-[42%] text-right">
-                    {daysLabel && (
-                      <div
-                        className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide text-rose-600 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 px-2 py-0.5 rounded-lg"
-                        title={
-                          arrivalForDays
-                            ? `In shop since ${arrivalForDays}`
-                            : 'Days at shop'
-                        }
+                    <div className="flex items-center gap-1 justify-end flex-wrap">
+                      {daysLabel && (
+                        <div
+                          className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide text-rose-600 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 px-2 py-0.5 rounded-lg"
+                          title={
+                            arrivalForDays
+                              ? `In shop since ${arrivalForDays}`
+                              : 'Days at shop'
+                          }
+                        >
+                          <CalendarDays size={11} className="opacity-80" />
+                          {daysLabel}
+                        </div>
+                      )}
+                      {/* Compact request — top-right, away from location/status */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRequestJob(job);
+                        }}
+                        title="Request a part for this job"
+                        className="inline-flex items-center justify-center gap-0.5 h-[1.65rem] min-w-[3.25rem] max-w-[4.5rem] px-1.5 rounded-lg border-2 text-[8px] font-black uppercase tracking-tight leading-none shrink-0"
+                        style={{ borderColor: primary, color: primary }}
                       >
-                        <CalendarDays size={11} className="opacity-80" />
-                        {daysLabel}
-                      </div>
-                    )}
+                        <Package size={12} className="shrink-0" />
+                        Req
+                      </button>
+                    </div>
                     {job.assignedTech ? (
                       <span className="text-[10px] font-black uppercase tracking-wide px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600 max-w-full truncate">
                         {job.assignedTech}
@@ -468,20 +484,6 @@ export default function Dashboard({ onOpenJob, onOpenSettings, onOpenParts }) {
                     className="w-full"
                   />
                 </div>
-
-                {/* Request part without opening the full job (job info prefilled) */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setRequestJob(job);
-                  }}
-                  className="mt-2.5 w-full py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wide flex items-center justify-center gap-1.5 border-2 transition-colors"
-                  style={{ borderColor: primary, color: primary }}
-                >
-                  <Package size={14} />
-                  Request part
-                </button>
               </div>
             );
           })}
