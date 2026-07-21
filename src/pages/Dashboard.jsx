@@ -23,6 +23,7 @@ import { APP_NAME } from '../config';
 import PillSelect from '../components/PillSelect';
 import PartRequestModal from '../components/PartRequestModal';
 import { mergeTechnicianOptions } from '../lib/technicians';
+import { formatCustomerNameLastFirst } from '../lib/invoiceScan';
 
 function partsNeedingReturn(job) {
   return (job.parts || []).filter((p) => p.isReturning);
@@ -409,7 +410,9 @@ export default function Dashboard({ onOpenJob, onOpenSettings, onOpenParts }) {
                 <div className="flex gap-2 items-start">
                   <div className="min-w-0 flex-1">
                     <div className="font-bold text-[15px] sm:text-base text-slate-900 dark:text-slate-50 truncate leading-tight">
-                      {job.customerName || 'New Repair'}
+                      {job.customerName
+                        ? formatCustomerNameLastFirst(job.customerName)
+                        : 'New Repair'}
                     </div>
                     <div className="mt-0.5 text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wide truncate">
                       {job.vehicle || 'No vehicle specified'}

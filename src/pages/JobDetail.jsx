@@ -32,6 +32,7 @@ import {
 import { generateId } from '../lib/ids';
 import { DEFAULT_BRANDING } from '../lib/constants';
 import { mergeTechnicianOptions } from '../lib/technicians';
+import { formatCustomerNameLastFirst } from '../lib/invoiceScan';
 import {
   buildJobSummary,
   jobEmailSubject,
@@ -747,7 +748,11 @@ export default function JobDetail({ job, onBack }) {
           <ArrowLeft size={20} />
         </button>
         <div className="flex-1 min-w-0">
-          <div className="font-bold truncate lg:text-lg">{form.customerName || 'New Repair'}</div>
+          <div className="font-bold truncate lg:text-lg">
+            {form.customerName
+              ? formatCustomerNameLastFirst(form.customerName)
+              : 'New Repair'}
+          </div>
           <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">
             RO: {form.roNumber || 'N/A'}
           </div>
@@ -832,8 +837,17 @@ export default function JobDetail({ job, onBack }) {
                   className="field"
                   value={form.customerName || ''}
                   onChange={(e) => update('customerName', e.target.value)}
-                  placeholder="First Last"
+                  onBlur={(e) => {
+                    const formatted = formatCustomerNameLastFirst(e.target.value);
+                    if (formatted && formatted !== form.customerName) {
+                      update('customerName', formatted);
+                    }
+                  }}
+                  placeholder="Last, First"
                 />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Stored as Last, First (CCC style).
+                </p>
               </Field>
               <Field label="Vehicle">
                 <input
