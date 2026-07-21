@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   Package,
@@ -8,12 +8,17 @@ import {
   Briefcase,
   Settings,
   ExternalLink,
+  RotateCcw,
+  AlertTriangle,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
   subscribePartRequests,
   updatePartRequest,
   getJob,
+  subscribeJobs,
+  collectReturningParts,
+  markPartReturned,
 } from '../lib/api';
 import { DEFAULT_BRANDING } from '../lib/constants';
 
@@ -21,7 +26,8 @@ const FILTERS = [
   { id: 'open', label: 'Open' },
   { id: 'ordered', label: 'Ordered' },
   { id: 'received', label: 'Received' },
-  { id: 'all', label: 'All' },
+  { id: 'returns', label: 'Returns' },
+  { id: 'all', label: 'All reqs' },
 ];
 
 export default function PartsInbox({
@@ -34,6 +40,7 @@ export default function PartsInbox({
   const { company, profile, user } = useAuth();
   const primary = company?.branding?.primaryColor || DEFAULT_BRANDING.primaryColor;
   const [requests, setRequests] = useState([]);
+  const [jobs, setJobs] = useState([]);
   const [filter, setFilter] = useState('open');
   const [busyId, setBusyId] = useState(null);
   const [lightbox, setLightbox] = useState(null);
@@ -57,10 +64,24 @@ export default function PartsInbox({
     );
   }, [company?.id]);
 
-  const filtered = requests.filter((r) => {
-    if (filter === 'all') return true;
-    return r.status === filter;
-  });
+  useEffect(() => {
+    if (!company?.id) return undefined;
+    return subscribeJobs(
+      company.id,
+      setJobs,
+      (err) => console.warn('Jobs for returns', err)
+    );
+  }, [company?.id]);
+
+  const returnRows = useMemo(() => collectReturningParts(jobs), [jobs]);
+
+  const filtered = useMemo(() => {
+    if (filter === 'returns') return [];
+    if (filter === 'all') return requests;
+    return requests.filter((r) => r.status === filter);
+  }, [filter, requests]);
+
+  const shownCount = filter === 'returns' ? returnRows.length : filtered.length;
 
   const setStatus = async (req, status) => {
     if (!company?.id) return;
@@ -78,14 +99,14 @@ export default function PartsInbox({
     }
   };
 
-  const openLinkedJob = async (req) => {
-    if (!company?.id || !req.jobId || !onOpenJob) {
+  const openLinkedJob = async (jobId, rowKey) => {
+    if (!company?.id || !jobId || !onOpenJob) {
       onOpenJobs?.();
       return;
     }
-    setOpeningJobId(req.id);
+    setOpeningJobId(rowKey || jobId);
     try {
-      const job = await getJob(company.id, req.jobId);
+      const job = await getJob(company.id, jobId);
       if (job) onOpenJob(job);
       else {
         alert('Job not found (may have been deleted). Opening jobs list.');
@@ -95,6 +116,27 @@ export default function PartsInbox({
       alert(err.message || 'Could not open job');
     } finally {
       setOpeningJobId(null);
+    }
+  };
+
+  const markReturned = async (row) => {
+    if (!company?.id) return;
+    if (
+      !confirm(
+        `Mark returned?\n\n${row.description}${
+          row.partNumber ? ` (#${row.partNumber})` : ''
+        }\n${row.jobCustomerName || ''} ${row.jobRo ? `RO ${row.jobRo}` : ''}`
+      )
+    ) {
+      return;
+    }
+    setBusyId(row.id);
+    try {
+      await markPartReturned(company.id, row.jobId, row.partId);
+    } catch (err) {
+      alert(err.message || 'Could not mark returned');
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -115,10 +157,13 @@ export default function PartsInbox({
             <div className="flex-1 min-w-0">
               <div className="font-black text-base lg:text-lg flex items-center gap-2">
                 <Package size={20} style={{ color: primary }} />
-                Parts requests
+                Parts desk
               </div>
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                {filtered.length} shown
+                {shownCount} shown
+                {returnRows.length > 0 && filter !== 'returns'
+                  ? ` · ${returnRows.length} return${returnRows.length === 1 ? '' : 's'}`
+                  : ''}
                 {isPartsHome ? ' · your home' : ''}
               </p>
             </div>
@@ -143,21 +188,37 @@ export default function PartsInbox({
             )}
           </div>
           <div className="app-page-pad pb-3 flex gap-1 overflow-x-auto">
-            {FILTERS.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setFilter(f.id)}
-                className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider shrink-0 ${
-                  filter === f.id
-                    ? 'text-white'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
-                }`}
-                style={filter === f.id ? { backgroundColor: primary } : undefined}
-              >
-                {f.label}
-              </button>
-            ))}
+            {FILTERS.map((f) => {
+              const isReturns = f.id === 'returns';
+              const active = filter === f.id;
+              const count = isReturns
+                ? returnRows.length
+                : f.id === 'all'
+                  ? requests.length
+                  : requests.filter((r) => r.status === f.id).length;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setFilter(f.id)}
+                  className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider shrink-0 ${
+                    active
+                      ? 'text-white'
+                      : isReturns && count > 0
+                        ? 'bg-red-100 dark:bg-red-950/50 text-red-700 dark:text-red-300'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                  }`}
+                  style={
+                    active
+                      ? { backgroundColor: isReturns ? '#dc2626' : primary }
+                      : undefined
+                  }
+                >
+                  {f.label}
+                  {count > 0 ? ` (${count})` : ''}
+                </button>
+              );
+            })}
           </div>
         </header>
 
@@ -166,14 +227,112 @@ export default function PartsInbox({
             <div className="app-card p-3 text-xs font-bold text-red-600">{error}</div>
           )}
 
-          {filtered.length === 0 ? (
+          {filter === 'returns' ? (
+            returnRows.length === 0 ? (
+              <div className="app-card text-center py-14 px-6">
+                <RotateCcw className="mx-auto mb-3 text-slate-300" size={36} />
+                <p className="text-sm font-bold text-slate-600 dark:text-slate-300">
+                  No parts flagged for return
+                </p>
+                <p className="text-xs text-slate-400 mt-1">
+                  When a tech marks <b>Needs return</b> on a job part, it shows up here.
+                </p>
+              </div>
+            ) : (
+              returnRows.map((row) => (
+                <div
+                  key={row.id}
+                  className="app-card p-4 space-y-3 border-red-300 dark:border-red-800 bg-red-50/40 dark:bg-red-950/20"
+                >
+                  <div className="flex justify-between gap-2 items-start">
+                    <div className="min-w-0">
+                      <div className="font-bold text-sm text-slate-900 dark:text-slate-50 flex items-center gap-1.5">
+                        <AlertTriangle size={14} className="text-red-600 shrink-0" />
+                        <span className="truncate">{row.description}</span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">
+                        {[
+                          row.jobCustomerName,
+                          row.jobVehicle,
+                          row.jobRo ? `RO ${row.jobRo}` : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' · ') || 'Job'}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={openingJobId === row.id}
+                        onClick={() => openLinkedJob(row.jobId, row.id)}
+                        className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide"
+                        style={{ color: primary }}
+                      >
+                        {openingJobId === row.id ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <ExternalLink size={12} />
+                        )}
+                        Open job
+                      </button>
+                    </div>
+                    <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300 shrink-0">
+                      Return
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                    {row.partNumber && (
+                      <span className="font-mono font-bold bg-white/80 dark:bg-slate-800 px-2 py-1 rounded-lg">
+                        #{row.partNumber}
+                      </span>
+                    )}
+                    <span className="px-2 py-1 rounded-lg bg-white/80 dark:bg-slate-800">
+                      Qty {row.quantity || 1}
+                    </span>
+                    {row.location && (
+                      <span className="px-2 py-1 rounded-lg bg-white/80 dark:bg-slate-800">
+                        Loc: {row.location}
+                      </span>
+                    )}
+                    {row.status && (
+                      <span className="px-2 py-1 rounded-lg bg-white/80 dark:bg-slate-800">
+                        {row.status}
+                      </span>
+                    )}
+                  </div>
+
+                  {row.returnReason && (
+                    <p className="text-xs font-semibold text-red-700 dark:text-red-300">
+                      Reason: {row.returnReason}
+                    </p>
+                  )}
+
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={busyId === row.id}
+                      onClick={() => markReturned(row)}
+                      className="text-[10px] font-black uppercase px-3 py-2 rounded-lg bg-emerald-600 text-white flex items-center gap-1 disabled:opacity-50"
+                    >
+                      {busyId === row.id ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <Check size={12} />
+                      )}
+                      Mark returned
+                    </button>
+                  </div>
+                </div>
+              ))
+            )
+          ) : filtered.length === 0 ? (
             <div className="app-card text-center py-14 px-6">
               <Package className="mx-auto mb-3 text-slate-300" size={36} />
               <p className="text-sm font-bold text-slate-600 dark:text-slate-300">
                 No {filter === 'all' ? '' : filter} requests
               </p>
               <p className="text-xs text-slate-400 mt-1">
-                Techs use <b>Request part</b> on job cards on the Jobs board.
+                Techs use <b>REQ</b> on job cards. Check the <b>Returns</b> tab for parts flagged on
+                jobs.
               </p>
             </div>
           ) : (
@@ -200,7 +359,7 @@ export default function PartsInbox({
                       <button
                         type="button"
                         disabled={openingJobId === req.id}
-                        onClick={() => openLinkedJob(req)}
+                        onClick={() => openLinkedJob(req.jobId, req.id)}
                         className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide"
                         style={{ color: primary }}
                       >

@@ -425,6 +425,49 @@ export async function getJob(companyId, jobId) {
   return { id: snap.id, ...snap.data() };
 }
 
+/**
+ * Flatten parts flagged isReturning across active (and optionally archived) jobs.
+ * Used by Parts inbox Return tab.
+ */
+export function collectReturningParts(jobs = [], { includeArchived = false } = {}) {
+  const rows = [];
+  for (const job of jobs) {
+    if (!includeArchived && job.isArchived) continue;
+    for (const part of job.parts || []) {
+      if (!part?.isReturning) continue;
+      rows.push({
+        id: `${job.id}_${part.id}`,
+        jobId: job.id,
+        partId: part.id,
+        description: part.description || 'Part',
+        partNumber: part.partNumber || '',
+        quantity: part.quantity || 1,
+        location: part.location || '',
+        status: part.status || '',
+        returnReason: part.returnReason || '',
+        jobCustomerName: job.customerName || '',
+        jobVehicle: job.vehicle || '',
+        jobRo: job.roNumber || '',
+        jobArchived: Boolean(job.isArchived),
+      });
+    }
+  }
+  rows.sort((a, b) =>
+    String(a.jobCustomerName || '').localeCompare(String(b.jobCustomerName || ''))
+  );
+  return rows;
+}
+
+/** Clear return flag on a single part (parts desk “Mark returned”). */
+export async function markPartReturned(companyId, jobId, partId) {
+  const job = await getJob(companyId, jobId);
+  if (!job) throw new Error('Job not found');
+  const parts = (job.parts || []).map((p) =>
+    p.id === partId ? { ...p, isReturning: false, returnReason: '' } : p
+  );
+  return saveJob(companyId, { ...job, parts });
+}
+
 export async function deleteJob(companyId, jobId) {
   await deleteDoc(doc(db(), 'companies', companyId, 'jobs', jobId));
 }
