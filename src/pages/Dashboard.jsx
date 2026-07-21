@@ -16,11 +16,13 @@ import {
   emptyJob,
   formatDaysAtShop,
   subscribeOpenPartRequestCount,
+  listCompanyUsers,
 } from '../lib/api';
 import { DEFAULT_BRANDING, pillStyle } from '../lib/constants';
 import { APP_NAME } from '../config';
 import PillSelect from '../components/PillSelect';
 import PartRequestModal from '../components/PartRequestModal';
+import { mergeTechnicianOptions } from '../lib/technicians';
 
 function partsNeedingReturn(job) {
   return (job.parts || []).filter((p) => p.isReturning);
@@ -48,9 +50,13 @@ export default function Dashboard({ onOpenJob, onOpenSettings, onOpenParts }) {
   const [dbStatus, setDbStatus] = useState('connecting');
   const [openPartsCount, setOpenPartsCount] = useState(0);
   const [requestJob, setRequestJob] = useState(null);
+  const [teamUsers, setTeamUsers] = useState([]);
 
   const settings = company?.settings || {};
-  const technicians = settings.technicians || [];
+  const technicians = useMemo(
+    () => mergeTechnicianOptions(teamUsers, settings.technicians),
+    [teamUsers, settings.technicians]
+  );
   const repairStatuses = settings.repairStatuses || [];
   const vehicleLocations = settings.vehicleLocations || [];
   const primary = company?.branding?.primaryColor || DEFAULT_BRANDING.primaryColor;
@@ -72,6 +78,24 @@ export default function Dashboard({ onOpenJob, onOpenSettings, onOpenParts }) {
       },
       () => setDbStatus('error')
     );
+  }, [company?.id]);
+
+  useEffect(() => {
+    if (!company?.id) {
+      setTeamUsers([]);
+      return undefined;
+    }
+    let cancelled = false;
+    listCompanyUsers(company.id)
+      .then((list) => {
+        if (!cancelled) setTeamUsers(list);
+      })
+      .catch(() => {
+        if (!cancelled) setTeamUsers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [company?.id]);
 
   useEffect(() => {

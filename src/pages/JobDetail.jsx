@@ -27,9 +27,11 @@ import {
   shouldNotifyCustomerOnStatus,
   createPartRequest,
   uploadPartRequestPhoto,
+  listCompanyUsers,
 } from '../lib/api';
 import { generateId } from '../lib/ids';
 import { DEFAULT_BRANDING } from '../lib/constants';
+import { mergeTechnicianOptions } from '../lib/technicians';
 import {
   buildJobSummary,
   jobEmailSubject,
@@ -80,6 +82,7 @@ export default function JobDetail({ job, onBack }) {
   const [reqOpen, setReqOpen] = useState(false);
   const [smsBusy, setSmsBusy] = useState(false);
   const [smsMsg, setSmsMsg] = useState('');
+  const [teamUsers, setTeamUsers] = useState([]);
   /** Always-mounted file inputs (must not live only inside Parts tab) */
   const scanFileRef = useRef(null);
   const scanCameraRef = useRef(null);
@@ -94,13 +97,34 @@ export default function JobDetail({ job, onBack }) {
   const partStatuses = settings.partStatuses || [];
   const partLocations = settings.partLocations || [];
   const returnReasons = settings.returnReasons || [];
-  const technicians = settings.technicians || [];
+  const technicians = React.useMemo(
+    () => mergeTechnicianOptions(teamUsers, settings.technicians),
+    [teamUsers, settings.technicians]
+  );
   const scannerEnabled = Boolean(company?.features?.invoiceScanner);
   const smsEnabled = Boolean(company?.features?.customerStatusSms);
   const emailEnabled = Boolean(company?.features?.customerStatusEmails);
   const shopPhone = settings.shopPhone || company?.contactPhone || '';
   const shopReplyEmail =
     company?.contactEmail || settings.shopEmail || company?.billing?.contactEmail || '';
+
+  useEffect(() => {
+    if (!company?.id) {
+      setTeamUsers([]);
+      return undefined;
+    }
+    let cancelled = false;
+    listCompanyUsers(company.id)
+      .then((list) => {
+        if (!cancelled) setTeamUsers(list);
+      })
+      .catch(() => {
+        if (!cancelled) setTeamUsers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [company?.id]);
 
   useEffect(() => {
     // Merge defaults so older jobs still show new fields
@@ -951,12 +975,20 @@ export default function JobDetail({ job, onBack }) {
                   onChange={(e) => update('assignedTech', e.target.value)}
                 >
                   <option value="">Unassigned</option>
+                  {form.assignedTech &&
+                    !technicians.includes(form.assignedTech) && (
+                      <option value={form.assignedTech}>{form.assignedTech}</option>
+                    )}
                   {technicians.map((t) => (
                     <option key={t} value={t}>
                       {t}
                     </option>
                   ))}
                 </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Team Techs appear automatically. Extra names can be added under Account → team
+                  settings.
+                </p>
               </Field>
             </div>
 

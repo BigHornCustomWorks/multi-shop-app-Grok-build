@@ -731,12 +731,18 @@ function ShopEditor({ company, onSaved, onDeleted }) {
           onChange={(v) => patchSettings('returnReasons', v)}
           placeholder="e.g. Wrong color"
         />
-        <EditableList
-          title="Technician names"
-          items={settings.technicians}
-          onChange={(v) => patchSettings('technicians', v)}
-          placeholder="Tech name"
-        />
+        <div className="md:col-span-2 space-y-2">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed px-1">
+            <b>Job assignment techs:</b> active team members with the Tech role appear automatically
+            on the shop floor. Use the list below only for names of people who will not use the app.
+          </p>
+          <EditableList
+            title="Extra tech names (not app users)"
+            items={settings.technicians}
+            onChange={(v) => patchSettings('technicians', v)}
+            placeholder="Tech name as shown on jobs"
+          />
+        </div>
       </div>
 
       <div className="app-card p-5">

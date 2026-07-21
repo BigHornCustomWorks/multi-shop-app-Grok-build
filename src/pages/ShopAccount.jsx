@@ -30,6 +30,7 @@ import {
   updateCompany,
 } from '../lib/api';
 import EditableList from '../components/EditableList';
+import { techNamesFromTeam } from '../lib/technicians';
 
 /**
  * Shop-side account: appearance, and (for Owners) staff invite / roles / remove.
@@ -351,17 +352,41 @@ export default function ShopAccount({ onBack }) {
               )}
             </div>
 
-            <div className={techBusy ? 'opacity-60 pointer-events-none' : ''}>
-              <EditableList
-                title="Technician names (for job assignment)"
-                items={technicians}
-                onChange={saveTechNames}
-                placeholder="Tech name as shown on jobs"
-              />
-              <p className="text-[10px] text-slate-400 mt-1 px-1">
-                These names appear on the dashboard filter and job “Assigned tech” list. Match them
-                to how techs are labeled on the floor.
+            <div className="app-card p-5 space-y-3">
+              <div className="section-title">Techs for job assignment</div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                Anyone with the <b>Tech</b> role (active team members) is listed automatically for
+                job assignment and the dashboard filter. Add extra names only for people who do{' '}
+                <b>not</b> use the app.
               </p>
+              {(() => {
+                const fromTeam = techNamesFromTeam(users);
+                return fromTeam.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {fromTeam.map((n) => (
+                      <span
+                        key={n}
+                        className="text-[10px] font-black uppercase tracking-wide px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-800"
+                      >
+                        {n}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400">
+                    No team Techs yet — set a member’s role to Tech above.
+                  </p>
+                );
+              })()}
+              <div className={techBusy ? 'opacity-60 pointer-events-none' : ''}>
+                <EditableList
+                  title="Extra tech names (not on the app)"
+                  items={technicians}
+                  onChange={saveTechNames}
+                  placeholder="Name as shown on jobs"
+                  defaultOpen={false}
+                />
+              </div>
             </div>
           </>
         )}
