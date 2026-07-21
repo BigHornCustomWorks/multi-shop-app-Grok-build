@@ -213,27 +213,93 @@ export function parseInvoiceJson(raw) {
 }
 
 /**
- * Map scan JSON → app parts[] entries.
+ * Normalize scan payload to a common shape (supports new CCC schema + older line_items).
+ */
+export function normalizeScanPayload(data) {
+  if (!data || typeof data !== 'object') return {};
+  const warnings = Array.isArray(data.extraction_warnings)
+    ? data.extraction_warnings.map(String)
+    : [];
+
+  // Name: prefer explicit last/first, then customer_name
+  let last = data.last_name != null ? String(data.last_name).trim() : '';
+  let first = data.first_name != null ? String(data.first_name).trim() : '';
+  let customerName = data.customer_name != null ? String(data.customer_name).trim() : '';
+  if (last && first) {
+    customerName = `${last}, ${first}`;
+  } else if (customerName) {
+    customerName = formatCustomerNameLastFirst(customerName);
+  }
+
+  // Phone: Cell only from new schema; fall back to customer_phone
+  const cell =
+    (data.cell_phone != null && String(data.cell_phone).trim()) ||
+    (data.customer_phone != null && String(data.customer_phone).trim()) ||
+    '';
+
+  const email =
+    (data.email != null && String(data.email).trim()) ||
+    (data.customer_email != null && String(data.customer_email).trim()) ||
+    '';
+
+  // Parts: new `parts` array preferred; else filter physical lines from line_items
+  let parts = [];
+  if (Array.isArray(data.parts) && data.parts.length) {
+    parts = data.parts;
+  } else if (Array.isArray(data.line_items)) {
+    parts = data.line_items.filter((item) => {
+      const pn = item?.part_number != null ? String(item.part_number).trim() : '';
+      const type = String(item?.type || 'part').toLowerCase();
+      if (!pn) return false;
+      if (['labor', 'paint', 'sublet'].includes(type)) return false;
+      return true;
+    });
+  }
+
+  return {
+    ...data,
+    customer_name: customerName || null,
+    last_name: last || null,
+    first_name: first || null,
+    cell_phone: cell || null,
+    email: email || null,
+    parts,
+    extraction_warnings: warnings,
+  };
+}
+
+/**
+ * Map scan JSON → app parts[] entries (physical parts with part numbers only).
  */
 export function invoiceJsonToParts(data, emptyPart, defaults = {}) {
-  const items = Array.isArray(data?.line_items) ? data.line_items : [];
-  return items.map((item) => {
-    const type = String(item.type || 'part').toLowerCase();
-    let description = String(item.description || '').trim() || 'Line item';
-    if (type && type !== 'part') {
-      description = `[${type}] ${description}`;
-    }
-    const qty = Number(item.quantity);
-    return {
-      ...emptyPart(defaults),
-      description,
-      partNumber: item.part_number != null ? String(item.part_number).toUpperCase() : '',
-      quantity: Number.isFinite(qty) && qty > 0 ? qty : 1,
-      unitPrice: numOrNull(item.unit_price),
-      totalPrice: numOrNull(item.total_price),
-      lineType: type,
-    };
-  });
+  const norm = normalizeScanPayload(data);
+  const items = Array.isArray(norm.parts) ? norm.parts : [];
+
+  return items
+    .map((item) => {
+      const partNumber =
+        item.part_number != null ? String(item.part_number).trim().toUpperCase() : '';
+      if (!partNumber) return null;
+
+      const section = item.section != null ? String(item.section).trim() : '';
+      let description = String(item.description || '').trim() || 'Part';
+      if (section) {
+        description = `[${section}] ${description}`;
+      }
+
+      const qty = Number(item.quantity);
+      return {
+        ...emptyPart(defaults),
+        description,
+        partNumber,
+        quantity: Number.isFinite(qty) && qty > 0 ? Math.round(qty) : 1,
+        unitPrice: numOrNull(item.unit_price ?? item.extended_price),
+        totalPrice: numOrNull(item.total_price ?? item.extended_price),
+        lineType: 'part',
+        section: section || '',
+      };
+    })
+    .filter(Boolean);
 }
 
 /**
@@ -268,8 +334,14 @@ export function formatCustomerNameLastFirst(raw) {
  *   force=true (CCC): overwrite empty-looking fields more aggressively
  */
 export function invoiceJsonToJobPatches(data, currentJob = {}, options = {}) {
-  const force = Boolean(options.force || options.mode === 'ccc_estimate');
-  const mode = options.mode || data?.document_type || '';
+  const force = Boolean(
+    options.force ||
+      options.mode === 'ccc_estimate' ||
+      options.mode === 'parts_invoice' ||
+      data?.document_type === 'ccc_estimate' ||
+      data?.document_type === 'ccc_parts_list'
+  );
+  const norm = normalizeScanPayload(data);
   const patches = {};
 
   const setIf = (key, value) => {
@@ -282,37 +354,47 @@ export function invoiceJsonToJobPatches(data, currentJob = {}, options = {}) {
     if (empty) patches[key] = value;
   };
 
-  let name = data?.customer_name && String(data.customer_name).trim();
-  // CCC and body-shop convention: Last, First
-  if (name && (mode === 'ccc_estimate' || force || data?.document_type === 'ccc_estimate')) {
-    name = formatCustomerNameLastFirst(name);
-  } else if (name) {
-    // Parts invoices: still prefer Last, First when name looks like "First Last"
-    name = formatCustomerNameLastFirst(name);
+  // Customer: Last, First
+  let name = norm.customer_name || '';
+  if (!name && norm.last_name) {
+    name = norm.first_name
+      ? `${norm.last_name}, ${norm.first_name}`
+      : norm.last_name;
   }
+  if (name) name = formatCustomerNameLastFirst(name);
   setIf('customerName', name);
 
-  const phone = data?.customer_phone && String(data.customer_phone).trim();
-  setIf('customerPhone', phone);
+  // Cell only (never Business/Evening substitutes — model instructed; we only map cell_phone)
+  setIf('customerPhone', norm.cell_phone);
 
-  const email = data?.customer_email && String(data.customer_email).trim();
-  setIf('customerEmail', email);
+  setIf('customerEmail', norm.email);
 
-  const damage = data?.damage_description && String(data.damage_description).trim();
+  const damage =
+    norm.damage_description != null ? String(norm.damage_description).trim() : '';
   setIf('damageSummary', damage);
 
-  const ro =
-    (data?.ro_number && String(data.ro_number).trim()) ||
-    (data?.estimate_number && String(data.estimate_number).trim()) ||
-    (data?.invoice_number && String(data.invoice_number).trim());
+  // RO Number only — never Workfile ID (model instructed)
+  const ro = norm.ro_number != null ? String(norm.ro_number).trim() : '';
   setIf('roNumber', ro);
 
-  const v = data?.vehicle_info || {};
-  const year = v.year != null && v.year !== '' ? String(v.year) : '';
-  const make = v.make ? String(v.make).trim() : '';
-  const model = v.model ? String(v.model).trim() : '';
-  const vehicleStr = [year, make, model].filter(Boolean).join(' ').trim();
-  setIf('vehicle', vehicleStr);
+  // Prefer full CCC vehicle line verbatim
+  const vehicleDesc =
+    norm.vehicle_description != null ? String(norm.vehicle_description).trim() : '';
+  if (vehicleDesc) {
+    setIf('vehicle', vehicleDesc);
+  } else {
+    const v = norm.vehicle_info || {};
+    const year = v.year != null && v.year !== '' ? String(v.year) : '';
+    const make = v.make ? String(v.make).trim() : '';
+    const model = v.model ? String(v.model).trim() : '';
+    const vehicleStr = [year, make, model].filter(Boolean).join(' ').trim();
+    setIf('vehicle', vehicleStr);
+  }
+
+  // Surface extraction warnings into a temp field callers may log
+  if (norm.extraction_warnings?.length) {
+    patches._scanWarnings = norm.extraction_warnings;
+  }
 
   return patches;
 }

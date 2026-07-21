@@ -1,118 +1,177 @@
 /**
- * Shared JSON shape for all document scans (parts invoices + CCC estimates).
- * Keep one schema so mapping code stays simple.
+ * CCC ONE document extraction schema — Estimate + Parts List.
+ * Aligned with shop workflow: RO, Last/First name, full vehicle line, Cell only, physical parts.
  */
-export const SCAN_JSON_SHAPE = `{
-  "document_type": "parts_invoice" | "ccc_estimate" | "other",
-  "invoice_number": "string or null",
-  "estimate_number": "string or null",
+
+export const CCC_JSON_SHAPE = `{
+  "document_type": "ccc_estimate" | "ccc_parts_list" | "parts_invoice" | "other",
   "ro_number": "string or null",
-  "invoice_date": "YYYY-MM-DD or null",
-  "customer_name": "string or null — ALWAYS format as Last, First (e.g. Smith, John). Never First Last.",
-  "customer_phone": "string or null",
-  "customer_email": "string or null",
-  "damage_description": "short summary of damage / loss for the tech list, or null",
+  "customer_name": "string or null — ALWAYS \\"LAST, FIRST\\" as printed on CCC",
+  "last_name": "string or null — split from customer_name on the comma",
+  "first_name": "string or null — split from customer_name on the comma",
+  "vehicle_description": "string or null — full bold vehicle line above VIN, verbatim",
   "vehicle_info": {
-    "year": number or null,
+    "year": "number or null — only if clearly readable; optional",
     "make": "string or null",
     "model": "string or null",
     "vin": "string or null"
   },
-  "line_items": [
+  "cell_phone": "string or null — ONLY a phone labeled Cell under Owner (never Business/Evening)",
+  "email": "string or null — only if an address with @ appears on the page",
+  "damage_description": "short shop-floor damage summary or null (estimates only)",
+  "estimate_number": "string or null",
+  "invoice_number": "string or null",
+  "parts": [
     {
-      "part_number": "string or null",
-      "description": "full description string",
-      "quantity": number,
-      "unit_price": number or null,
-      "total_price": number or null,
-      "type": "part" | "labor" | "sublet" | "paint" | "other"
+      "section": "string or null — section header above this part (e.g. FRONT DOOR), not a part itself",
+      "description": "string",
+      "part_number": "string — required for inclusion",
+      "quantity": "integer — default 1 if blank but part number present"
     }
   ],
-  "subtotal": number or null,
-  "tax": number or null,
-  "total": number or null,
-  "notes": "any additional relevant notes or null"
+  "extraction_warnings": ["string notes about illegible fields or name conflicts"]
 }`;
 
-/**
- * Vendor / packing-slip style parts invoices (receiving).
- */
-export const PARTS_INVOICE_PROMPT = `You are an expert auto body shop parts-invoice parser. Extract line items and header info from this PARTS INVOICE / packing slip image with high accuracy.
+const CCC_SHARED_RULES = `
+FIELDS TO EXTRACT
 
-This is NOT a CCC ONE estimate — it is a vendor invoice for ordered parts.
+1. ro_number
+   - Label "RO Number:" appears directly under the title on either document type.
+   - Not always present (some preliminary estimates have no RO Number, only a Workfile ID
+     printed top-right — do NOT use Workfile ID as a substitute; leave ro_number null if
+     "RO Number:" isn't printed).
 
-Return ONLY a valid JSON object with this exact structure. Do not add any extra text, markdown, or code fences.
+2. customer_name / last_name / first_name
+   - On the Estimate: "Customer: LAST, FIRST" near the top, and again as "Owner: LAST, FIRST"
+     in the three-column block.
+   - On the Parts List: "Customer: LAST, FIRST" or "Owner: LAST, FIRST" near the top.
+   - Format is "LAST, FIRST" — set customer_name to that full string, and also split into
+     last_name and first_name on the comma. Keep CCC order: Last, First (never First Last).
+   - If both documents are supplied and the names differ, keep the Estimate's version and add
+     a note to extraction_warnings.
 
-${SCAN_JSON_SHAPE}
+3. vehicle_description
+   - The bold line above "VIN:" on either document, e.g.
+     "2019 TOYO Camry XLE Automatic 4D SED 4-2.5L Gasoline Port/Direct Injection"
+   - Return the full line verbatim as vehicle_description. Do not invent a shorter paraphrase.
+   - Optionally also fill vehicle_info year/make/model/vin when clearly labeled; never invent.
 
-Rules:
-- Set document_type to "parts_invoice".
-- customer_name: if a customer/insured name is present, use "Last, First" order (body-shop convention).
-- Be extremely accurate with part numbers — alphanumeric (e.g. "12345-AB", "OEM-456").
-- Combine multi-line descriptions into one clean description field.
-- Prefer type "part" for physical parts; use labor/sublet/other only when clearly labeled.
-- quantity must be a number (default 1 if missing).
-- unit_price and total_price: numbers without currency symbols, or null.
-- Extract EVERY clear part line — do not skip rows because the page is dense.
-- Only extract real data — never invent part numbers or quantities.
-- Handle messy scans, handwriting, and rotated text. If the page is blurry, still extract what is readable.
+4. cell_phone
+   - Found ONLY on the Estimate, under the "Owner:" column, as one or more phone lines each
+     tagged with a label (Cell, Business, Evening, etc.).
+   - Extract the number specifically labeled "Cell". If no line is labeled "Cell", return
+     null — do not substitute a Business or Evening number.
+   - The Parts List does not contain phone numbers; do not expect to find this field there.
+
+5. email
+   - Not present in standard CCC ONE Estimate or Parts List layouts observed so far. Look
+     for any line containing "@" anywhere on the page (sometimes appended manually near the
+     owner block) and capture it if found; otherwise return null. Do not guess or construct
+     an email from the name.
+
+6. parts (array)
+   - Table columns: Line | Description | Part Number | Quantity | Extended Price (Parts List)
+     or Line | Oper | Description | Part Number | Qty | ... (Estimate line items).
+   - Section header rows (e.g. "WHEELS", "FRONT DOOR", "REAR BUMPER") occupy a Line number
+     but have no description/part number/quantity of their own — do NOT extract these as
+     parts. Use them only to tag the part rows that follow with a \`section\` value.
+   - Only include rows that have an actual part_number. Skip labor-only rows (R&I, Rpr, O/H,
+     "Add for Clear Coat", "Overlap", sublet/hazmat/cover-car line items) since those aren't
+     physical parts.
+   - For each qualifying row return: { "section": string|null, "description": string,
+     "part_number": string, "quantity": integer }.
+   - Quantity defaults to 1 if the column is blank but a part number is present.
+
+GENERAL RULES
+- Never invent a value — return null (or [] for parts) if a field isn't present on the page.
+- Preserve exact capitalization/spacing of names, VINs, and part numbers as printed.
+- If a required region is present but illegible, return null for that field and add a note
+  to extraction_warnings describing which field.
+- Output valid JSON only — no commentary, no markdown fences.
 `;
 
 /**
- * CCC ONE estimate layout (consistent shop estimate PDF / printout).
- * Tuned for auto-populating a repair job (customer, vehicle, damage, parts).
+ * CCC ONE Preliminary Estimate / Estimate of Record.
  */
-export const CCC_ESTIMATE_PROMPT = `You are an expert CCC ONE collision estimate parser for auto body shops. Extract customer, vehicle, damage, and line items from this CCC ONE ESTIMATE image/PDF printout with high accuracy.
+export const CCC_ESTIMATE_PROMPT = `You are a document-extraction engine for CCC ONE auto body PDFs.
+This image is a CCC ONE "Estimate" (titled "Preliminary Estimate" or "Estimate of Record").
 
-CCC ONE estimates usually have:
-- Header with shop / estimate or claim / RO-style reference numbers
-- Customer / insured name and often phone
-- Vehicle year, make, model, VIN in a vehicle block
-- Loss / damage / notes text describing what is damaged
-- A line-item area with operations and parts (part numbers, descriptions, labor hours or qty, amounts)
+Extract ONLY the fields below and return a single JSON object — no commentary, no markdown fences.
 
-Return ONLY a valid JSON object with this exact structure. Do not add any extra text, markdown, or code fences.
+Return JSON with this structure:
+${CCC_JSON_SHAPE}
 
-${SCAN_JSON_SHAPE}
+Set document_type to "ccc_estimate".
+
+${CCC_SHARED_RULES}
+
+Estimate-specific:
+- Prefer header fields (RO, Customer, Owner/Cell, vehicle line) from the Estimate layout.
+- For parts: extract equivalent line items that have a part_number (physical parts only).
+- damage_description: short summary from loss / damage area when present (shop floor note).
+`;
+
+/**
+ * CCC ONE Parts List for the same job.
+ */
+export const CCC_PARTS_LIST_PROMPT = `You are a document-extraction engine for CCC ONE auto body PDFs.
+This image is a CCC ONE "Parts List" document (not a vendor packing slip).
+
+Extract ONLY the fields below and return a single JSON object — no commentary, no markdown fences.
+
+Return JSON with this structure:
+${CCC_JSON_SHAPE}
+
+Set document_type to "ccc_parts_list".
+
+${CCC_SHARED_RULES}
+
+Parts List-specific:
+- Prioritize the Parts List table for the parts array (every row with a real part_number).
+- Header: Customer/Owner LAST, FIRST; vehicle line above VIN; RO Number if printed.
+- cell_phone is usually absent on Parts List — return null (do not invent).
+- damage_description may be null on Parts List.
+`;
+
+/**
+ * Vendor packing slip / non-CCC parts invoice (receiving).
+ */
+export const PARTS_INVOICE_PROMPT = `You are an expert auto body shop parts-invoice parser for vendor packing slips / supplier invoices (NOT CCC ONE Parts List).
+
+Return ONLY a valid JSON object with this structure (no markdown fences):
+${CCC_JSON_SHAPE}
+
+Set document_type to "parts_invoice".
 
 Rules:
-- Set document_type to "ccc_estimate".
-- Map estimate/claim/workfile numbers into estimate_number and/or ro_number when present.
-- customer_name = insured / customer / owner name on the estimate.
-  CRITICAL: CCC prints names as LAST, FIRST — always return customer_name as "Last, First"
-  (example: "Stussi, Clint" not "Clint Stussi"). If the page shows "Last, First" keep that order.
-  If it only shows First Last, convert to Last, First.
-- damage_description = short shop-floor summary (e.g. "LF fender, door, headlamp") from loss description and major ops — NOT a full essay.
-- vehicle_info from the vehicle section; include VIN when visible.
-- line_items: include PARTS and clear replace/R&I type ops as type "part"; labor/refinish as "labor" or "paint"; sublet as "sublet".
-- Prefer part lines that have OEM part numbers; still include clear replace operations.
-- Be extremely accurate with part numbers (OEM-style alphanumeric).
-- Combine multi-line descriptions into one clean description.
-- quantity: for parts use qty; for labor lines you may use hours as quantity when that is what the line shows (still a number).
-- Only extract real printed data — never invent VINs, part numbers, or prices.
-- If a field is not on the page, use null.
-- Handle multi-column CCC layouts and dense tables.
-- Read the FULL page; do not stop after the header — fill customer, vehicle, damage, AND line_items when present.
+- customer_name: if present, format as "LAST, FIRST".
+- vehicle_description: full vehicle string if printed; else null.
+- cell_phone: only if clearly a cell number; else null.
+- email: only if @ present.
+- parts: only physical part lines with a part_number. quantity default 1.
+- section: use category headers when present.
+- Never invent part numbers or quantities.
+- Handle messy scans and dense tables; extract every clear part row.
 `;
 
 export const SCAN_MODES = {
-  parts_invoice: {
-    id: 'parts_invoice',
-    label: 'Parts invoice',
-    shortLabel: 'Parts invoice',
-    hint: 'Vendor packing slip / parts bill — adds line items to Parts.',
-    prompt: PARTS_INVOICE_PROMPT,
-    system:
-      'You extract data from auto body parts invoices. Respond with valid JSON only — no markdown fences.',
-  },
   ccc_estimate: {
     id: 'ccc_estimate',
     label: 'CCC estimate',
     shortLabel: 'CCC estimate',
-    hint: 'CCC ONE estimate — fills customer, vehicle, damage, RO, and parts when possible.',
+    hint: 'CCC ONE Preliminary / Estimate of Record — RO, Last First, vehicle line, Cell phone, part # lines.',
     prompt: CCC_ESTIMATE_PROMPT,
     system:
-      'You extract data from CCC ONE collision estimates. Respond with valid JSON only — no markdown fences.',
+      'You are a CCC ONE estimate extraction engine. Respond with valid JSON only — no markdown fences, no commentary.',
+  },
+  parts_invoice: {
+    id: 'parts_invoice',
+    label: 'CCC / parts list',
+    shortLabel: 'Parts list',
+    hint: 'CCC ONE Parts List (or vendor packing slip) — physical parts with part numbers only.',
+    prompt: CCC_PARTS_LIST_PROMPT,
+    system:
+      'You are a CCC ONE Parts List extraction engine. Respond with valid JSON only — no markdown fences, no commentary.',
   },
 };
 

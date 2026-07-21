@@ -669,13 +669,19 @@ export default function JobDetail({ job, onBack }) {
           : partLocations[0] || 'Receiving Shelf',
       });
 
-      // CCC: header fill is the main win even if few lines; parts invoice needs lines
+      // Parts list / vendor invoice: need at least one part # line; estimate can be header-only
       if (mode === 'parts_invoice' && !newParts.length) {
-        alert('No line items found on this invoice. Try a clearer photo or add parts manually.');
+        alert(
+          'No physical parts with part numbers found.\n\n' +
+            'Use a clear photo of the CCC Parts List (or vendor invoice) table, or add parts manually.'
+        );
         return;
       }
 
       const headerPatches = invoiceJsonToJobPatches(data, form, { mode });
+      const scanWarnings = headerPatches._scanWarnings;
+      delete headerPatches._scanWarnings;
+
       const next = {
         ...form,
         ...headerPatches,
@@ -687,10 +693,11 @@ export default function JobDetail({ job, onBack }) {
       if (data.estimate_number) noteBits.push(`Est #${data.estimate_number}`);
       if (data.invoice_number) noteBits.push(`Inv #${data.invoice_number}`);
       if (data.ro_number) noteBits.push(`RO ${data.ro_number}`);
-      if (data.invoice_date) noteBits.push(`Date ${data.invoice_date}`);
-      if (data.total != null) noteBits.push(`Total $${data.total}`);
-      if (data.notes) noteBits.push(String(data.notes));
-      if (newParts.length) noteBits.push(`${newParts.length} line(s)`);
+      if (headerPatches.customerName) noteBits.push(headerPatches.customerName);
+      if (newParts.length) noteBits.push(`${newParts.length} part(s)`);
+      if (Array.isArray(scanWarnings) && scanWarnings.length) {
+        noteBits.push(`Warnings: ${scanWarnings.join('; ')}`);
+      }
 
       if (noteBits.length) {
         const note = {
@@ -706,15 +713,21 @@ export default function JobDetail({ job, onBack }) {
       setForm(next);
       if (company?.id) await saveJob(company.id, next);
 
-      if (mode === 'ccc_estimate') {
-        setSection('info');
-        alert(
-          `CCC estimate imported.\n\n` +
-            `Customer/vehicle/damage/RO filled when found.\n` +
-            `Parts added: ${newParts.length}\n\n` +
-            `Review Info and Parts, then adjust as needed.`
-        );
-      }
+      setSection(mode === 'parts_invoice' && newParts.length ? 'parts' : 'info');
+      const warnText =
+        Array.isArray(scanWarnings) && scanWarnings.length
+          ? `\n\nWarnings:\n- ${scanWarnings.join('\n- ')}`
+          : '';
+      alert(
+        `${modeLabel} imported.\n\n` +
+          `Customer: ${headerPatches.customerName || form.customerName || '—'}\n` +
+          `RO: ${headerPatches.roNumber || form.roNumber || '—'}\n` +
+          `Vehicle: ${headerPatches.vehicle || form.vehicle || '—'}\n` +
+          `Phone (Cell): ${headerPatches.customerPhone || form.customerPhone || '—'}\n` +
+          `Parts with part #: ${newParts.length}\n\n` +
+          `Review Info and Parts, then adjust as needed.` +
+          warnText
+      );
     } catch (err) {
       console.error(err);
       alert(err?.message || 'Could not scan document. Try again or enter data manually.');
