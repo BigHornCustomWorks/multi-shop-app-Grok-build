@@ -14,21 +14,28 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { APP_NAME } from '../config';
-import { DEFAULT_BRANDING, ROLES, countActiveSeats } from '../lib/constants';
+import {
+  DEFAULT_BRANDING,
+  ROLES,
+  countActiveSeats,
+  roleLabel,
+  OWNER_ASSIGNABLE_ROLES,
+} from '../lib/constants';
 import {
   listCompanyUsers,
   setUserActive,
   removeUserFromCompany,
+  setUserRole,
   isUserAccountActive,
   updateCompany,
 } from '../lib/api';
 import EditableList from '../components/EditableList';
 
 /**
- * Shop-side account: appearance, and (for shop admins) staff + invite + tech names.
+ * Shop-side account: appearance, and (for Owners) staff invite / roles / remove.
  */
 export default function ShopAccount({ onBack }) {
-  const { user, profile, company, logout, isShopAdmin } = useAuth();
+  const { user, profile, company, logout, isShopAdmin, canManageTeam } = useAuth();
   const { isDark, toggleTheme } = useTheme();
   const primary = company?.branding?.primaryColor || DEFAULT_BRANDING.primaryColor;
   const seatLimit = company?.seatLimit ?? 5;
@@ -46,11 +53,11 @@ export default function ShopAccount({ onBack }) {
   };
 
   useEffect(() => {
-    if (isShopAdmin && company?.id) reloadUsers();
-  }, [isShopAdmin, company?.id]);
+    if (canManageTeam && company?.id) reloadUsers();
+  }, [canManageTeam, company?.id]);
 
   const activeSeats = countActiveSeats(users);
-  const overSeats = isShopAdmin && activeSeats > Number(seatLimit || 0);
+  const overSeats = canManageTeam && activeSeats > Number(seatLimit || 0);
 
   useEffect(() => {
     setTechnicians(company?.settings?.technicians || []);
@@ -99,7 +106,7 @@ export default function ShopAccount({ onBack }) {
           <ArrowLeft size={20} />
         </button>
         <div className="font-bold lg:text-lg">
-          {isShopAdmin ? 'Account & team' : 'Account & appearance'}
+          {canManageTeam ? 'Account & team' : 'Account & appearance'}
         </div>
         </div>
       </header>
@@ -124,13 +131,13 @@ export default function ShopAccount({ onBack }) {
             <div className="font-black text-lg truncate">{company?.name}</div>
             <div className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
               {APP_NAME}
-              {isShopAdmin ? ' · Shop admin' : ''}
+              {canManageTeam ? ' · Owner' : ''}
             </div>
           </div>
         </div>
 
-        {/* Shop admin: invite + staff */}
-        {isShopAdmin && (
+        {/* Owner: invite + staff roles */}
+        {canManageTeam && (
           <>
             {overSeats && (
               <div className="app-card p-4 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 text-amber-950 dark:text-amber-100 text-xs leading-relaxed lg:col-span-2">
@@ -141,11 +148,12 @@ export default function ShopAccount({ onBack }) {
             )}
             <div className="app-card p-5 space-y-3">
               <div className="section-title">
-                <UserCog size={14} /> Invite new techs
+                <UserCog size={14} /> Invite employees
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                Have them install/open the app, <b>Sign Up</b> with their email, then enter this
-                invite code.
+                New staff open the app, <b>Sign Up</b> with their email, then enter this invite code.
+                They join as <b>Tech</b> — you can change their role below (Tech or Parts manager).
+                Only the platform admin can assign another Owner.
               </p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 font-mono font-black tracking-widest text-lg bg-slate-50 dark:bg-slate-800 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-center">
@@ -168,8 +176,8 @@ export default function ShopAccount({ onBack }) {
                 <Users size={14} /> Team ({users.length})
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">
-                Deactivate someone who leaves so they lose access to customer jobs. Remove unlinks
-                them from this shop.
+                Set role, deactivate (blocks login), or remove from this shop. You cannot change
+                other Owners — contact platform support for that.
               </p>
               {staffMsg && (
                 <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300 mb-2">
@@ -184,6 +192,11 @@ export default function ShopAccount({ onBack }) {
                     const accountOn = isUserAccountActive(u);
                     const busy = userBusyId === u.id;
                     const isSelf = u.id === user?.uid;
+                    const isOtherOwner = u.role === ROLES.SHOP_ADMIN && !isSelf;
+                    const isStaff =
+                      u.role === ROLES.TECH ||
+                      u.role === ROLES.PARTS_MANAGER ||
+                      !u.role;
                     return (
                       <li
                         key={u.id}
@@ -203,7 +216,7 @@ export default function ShopAccount({ onBack }) {
                           </div>
                           <div className="text-right shrink-0">
                             <div className="text-[10px] font-bold uppercase text-slate-400">
-                              {u.role === ROLES.SHOP_ADMIN ? 'Shop admin' : u.role || 'tech'}
+                              {roleLabel(u.role)}
                             </div>
                             <span
                               className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
@@ -216,24 +229,102 @@ export default function ShopAccount({ onBack }) {
                             </span>
                           </div>
                         </div>
-                        {!isSelf && (
-                          <div className="flex flex-wrap gap-2">
-                            {accountOn ? (
+                        {!isSelf && isStaff && (
+                          <div className="space-y-2">
+                            <div>
+                              <label className="lbl">Role</label>
+                              <select
+                                className="field text-xs font-bold py-2"
+                                disabled={busy}
+                                value={
+                                  OWNER_ASSIGNABLE_ROLES.includes(u.role)
+                                    ? u.role
+                                    : ROLES.TECH
+                                }
+                                onChange={async (e) => {
+                                  const role = e.target.value;
+                                  setUserBusyId(u.id);
+                                  try {
+                                    await setUserRole(u.id, role, { allowOwner: false });
+                                    setStaffMsg(
+                                      `${u.displayName || u.email} → ${roleLabel(role)}`
+                                    );
+                                    reloadUsers();
+                                  } catch (err) {
+                                    setStaffMsg(err.message || 'Could not change role');
+                                  } finally {
+                                    setUserBusyId(null);
+                                  }
+                                }}
+                              >
+                                <option value={ROLES.TECH}>Tech</option>
+                                <option value={ROLES.PARTS_MANAGER}>Parts manager</option>
+                              </select>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {accountOn ? (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={async () => {
+                                    if (
+                                      !confirm(
+                                        `Deactivate ${u.displayName || u.email}? They lose access immediately.`
+                                      )
+                                    ) {
+                                      return;
+                                    }
+                                    setUserBusyId(u.id);
+                                    try {
+                                      await setUserActive(u.id, false);
+                                      setStaffMsg(`Deactivated ${u.displayName || u.email}`);
+                                      reloadUsers();
+                                    } catch (err) {
+                                      setStaffMsg(err.message || 'Failed');
+                                    } finally {
+                                      setUserBusyId(null);
+                                    }
+                                  }}
+                                  className="text-[10px] font-black uppercase px-3 py-1.5 rounded-lg bg-red-600 text-white disabled:opacity-50"
+                                >
+                                  Deactivate
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={async () => {
+                                    setUserBusyId(u.id);
+                                    try {
+                                      await setUserActive(u.id, true);
+                                      setStaffMsg(`Reactivated ${u.displayName || u.email}`);
+                                      reloadUsers();
+                                    } catch (err) {
+                                      setStaffMsg(err.message || 'Failed');
+                                    } finally {
+                                      setUserBusyId(null);
+                                    }
+                                  }}
+                                  className="text-[10px] font-black uppercase px-3 py-1.5 rounded-lg bg-emerald-600 text-white disabled:opacity-50"
+                                >
+                                  Reactivate
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 disabled={busy}
                                 onClick={async () => {
                                   if (
                                     !confirm(
-                                      `Deactivate ${u.displayName || u.email}? They lose access immediately.`
+                                      `Remove ${u.displayName || u.email} from this shop?`
                                     )
                                   ) {
                                     return;
                                   }
                                   setUserBusyId(u.id);
                                   try {
-                                    await setUserActive(u.id, false);
-                                    setStaffMsg(`Deactivated ${u.displayName || u.email}`);
+                                    await removeUserFromCompany(u.id);
+                                    setStaffMsg('Removed from shop');
                                     reloadUsers();
                                   } catch (err) {
                                     setStaffMsg(err.message || 'Failed');
@@ -241,58 +332,17 @@ export default function ShopAccount({ onBack }) {
                                     setUserBusyId(null);
                                   }
                                 }}
-                                className="text-[10px] font-black uppercase px-3 py-1.5 rounded-lg bg-red-600 text-white disabled:opacity-50"
+                                className="text-[10px] font-black uppercase px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-700 disabled:opacity-50"
                               >
-                                Deactivate
+                                Remove
                               </button>
-                            ) : (
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={async () => {
-                                  setUserBusyId(u.id);
-                                  try {
-                                    await setUserActive(u.id, true);
-                                    setStaffMsg(`Reactivated ${u.displayName || u.email}`);
-                                    reloadUsers();
-                                  } catch (err) {
-                                    setStaffMsg(err.message || 'Failed');
-                                  } finally {
-                                    setUserBusyId(null);
-                                  }
-                                }}
-                                className="text-[10px] font-black uppercase px-3 py-1.5 rounded-lg bg-emerald-600 text-white disabled:opacity-50"
-                              >
-                                Reactivate
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={async () => {
-                                if (
-                                  !confirm(
-                                    `Remove ${u.displayName || u.email} from this shop?`
-                                  )
-                                ) {
-                                  return;
-                                }
-                                setUserBusyId(u.id);
-                                try {
-                                  await removeUserFromCompany(u.id);
-                                  setStaffMsg('Removed from shop');
-                                  reloadUsers();
-                                } catch (err) {
-                                  setStaffMsg(err.message || 'Failed');
-                                } finally {
-                                  setUserBusyId(null);
-                                }
-                              }}
-                              className="text-[10px] font-black uppercase px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-700 disabled:opacity-50"
-                            >
-                              Remove
-                            </button>
+                            </div>
                           </div>
+                        )}
+                        {isOtherOwner && (
+                          <p className="text-[10px] text-slate-400 font-semibold">
+                            Owner — managed only in Master Control (platform).
+                          </p>
                         )}
                       </li>
                     );
@@ -371,21 +421,17 @@ export default function ShopAccount({ onBack }) {
               Role
             </span>
             <span className="font-semibold uppercase text-xs tracking-wider">
-              {profile?.role === ROLES.SHOP_ADMIN
-                ? 'Shop admin'
-                : profile?.role === ROLES.PARTS_MANAGER
-                  ? 'Parts manager'
-                  : profile?.role || '—'}
+              {roleLabel(profile?.role)}
             </span>
           </div>
         </div>
 
-        {!isShopAdmin && (
+        {!canManageTeam && (
           <div className="rounded-2xl border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 p-4 text-sm text-amber-950 dark:text-amber-100">
             <p className="font-bold mb-1">Need a change?</p>
             <p className="text-amber-900/80 dark:text-amber-100/80 text-xs leading-relaxed">
-              Ask your shop admin (or platform owner) for invite codes, status lists, or account
-              access changes.
+              Ask your shop <b>Owner</b> for invite codes, roles, or account access. Only the
+              platform admin can appoint a new Owner.
             </p>
           </div>
         )}

@@ -193,10 +193,14 @@ export function AuthProvider({ children }) {
     profile?.role === ROLES.PLATFORM_ADMIN || isPlatformAdminEmail(user?.email);
 
   const isShopAdmin = !isPlatformAdmin && profile?.role === ROLES.SHOP_ADMIN;
+  /** Shop Owner — same as shop_admin; can manage team in Settings */
+  const isShopOwner = isShopAdmin;
   const isPartsManager = !isPlatformAdmin && profile?.role === ROLES.PARTS_MANAGER;
   /** Can open parts request inbox */
   const canManageParts =
     isPlatformAdmin || isShopAdmin || isPartsManager;
+  /** Invite / remove staff / set tech & parts roles */
+  const canManageTeam = isShopOwner;
 
   const value = useMemo(
     () => ({
@@ -210,8 +214,10 @@ export function AuthProvider({ children }) {
       setError,
       isPlatformAdmin,
       isShopAdmin,
+      isShopOwner,
       isPartsManager,
       canManageParts,
+      canManageTeam,
       connectFirebase,
       login,
       signup,
@@ -230,8 +236,10 @@ export function AuthProvider({ children }) {
       error,
       isPlatformAdmin,
       isShopAdmin,
+      isShopOwner,
       isPartsManager,
       canManageParts,
+      canManageTeam,
     ]
   );
 

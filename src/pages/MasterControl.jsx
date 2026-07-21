@@ -43,6 +43,7 @@ import {
   PLANS,
   planById,
   countActiveSeats,
+  roleLabel,
 } from '../lib/constants';
 import EditableList from '../components/EditableList';
 
@@ -743,9 +744,9 @@ function ShopEditor({ company, onSaved, onDeleted }) {
           <Users size={14} /> Linked users ({users.length}) · seats {activeSeats}/{seatLimit}
         </h3>
         <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">
-          Assign a <b>Shop admin</b> (owner/manager) so they can invite techs and deactivate staff
-          without you. Use <b>Deactivate</b> when someone leaves. <b>Remove from shop</b> unlinks
-          their login from this company.
+          Assign one <b>Owner</b> (billing contact / manager) so they can invite staff, set Tech or
+          Parts roles, and deactivate people from the shop Settings menu. Only you can appoint or
+          change Owners. Use <b>Deactivate</b> / <b>Remove</b> as needed.
         </p>
         {users.length === 0 ? (
           <p className="text-sm text-slate-400">

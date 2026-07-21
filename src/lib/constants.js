@@ -70,10 +70,30 @@ export function pillStyle(bgHex) {
 
 export const ROLES = {
   PLATFORM_ADMIN: 'platform_admin',
+  /** Shop owner / manager — assign only from Master Control */
   SHOP_ADMIN: 'shop_admin',
   PARTS_MANAGER: 'parts_manager',
   TECH: 'tech',
 };
+
+/** Human labels for roles (shop floor language) */
+export function roleLabel(role) {
+  switch (role) {
+    case ROLES.PLATFORM_ADMIN:
+      return 'Platform admin';
+    case ROLES.SHOP_ADMIN:
+      return 'Owner';
+    case ROLES.PARTS_MANAGER:
+      return 'Parts manager';
+    case ROLES.TECH:
+      return 'Tech';
+    default:
+      return role || 'Tech';
+  }
+}
+
+/** Roles a shop Owner may assign (not Owner — only platform can set that) */
+export const OWNER_ASSIGNABLE_ROLES = [ROLES.TECH, ROLES.PARTS_MANAGER];
 
 export const PART_REQUEST_STATUSES = ['open', 'ordered', 'received', 'cancelled'];
 

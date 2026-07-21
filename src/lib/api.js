@@ -161,12 +161,20 @@ export async function removeUserFromCompany(uid) {
 
 /**
  * Set staff role (not platform_admin — that is email-based).
+ * @param {{ allowOwner?: boolean }} opts — only Master Control should set allowOwner true
  */
-export async function setUserRole(uid, role) {
+export async function setUserRole(uid, role, opts = {}) {
   if (!uid) throw new Error('Missing user id');
-  const allowed = [ROLES.TECH, ROLES.SHOP_ADMIN, ROLES.PARTS_MANAGER];
+  const allowOwner = Boolean(opts.allowOwner);
+  const allowed = allowOwner
+    ? [ROLES.TECH, ROLES.SHOP_ADMIN, ROLES.PARTS_MANAGER]
+    : [ROLES.TECH, ROLES.PARTS_MANAGER];
   if (!allowed.includes(role)) {
-    throw new Error('Role must be tech, shop_admin, or parts_manager');
+    throw new Error(
+      allowOwner
+        ? 'Role must be tech, parts_manager, or shop_admin (owner)'
+        : 'Owners may only set Tech or Parts manager. Contact platform admin to change Owner.'
+    );
   }
   await setDoc(
     doc(db(), 'users', uid),

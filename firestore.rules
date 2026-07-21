@@ -28,6 +28,7 @@ service cloud.firestore {
         && userDoc().role == 'platform_admin';
     }
 
+    /** Shop Owner (shop_admin) — team management in Settings */
     function isShopAdmin() {
       return accountActive()
         && userExists()
@@ -44,7 +45,6 @@ service cloud.firestore {
         && userDoc().companyId.size() > 0;
     }
 
-    /** Shop staff (tech, shop_admin, parts_manager) for this company */
     function sameCompany(companyId) {
       return accountActive()
         && userExists()
@@ -52,17 +52,40 @@ service cloud.firestore {
         && userDoc().companyId == companyId;
     }
 
-    /** Anyone who may use part-request inbox / create requests */
     function canUsePartRequests(companyId) {
       return isPlatformAdmin() || sameCompany(companyId);
+    }
+
+    /**
+     * Owner may manage staff in their shop only:
+     * - target is same company (or being removed)
+     * - cannot touch platform_admin or other Owners
+     * - cannot promote anyone to shop_admin / platform_admin
+     */
+    function shopOwnerManagingStaff() {
+      return isShopAdmin()
+        && resource.data.get('role', '') != 'platform_admin'
+        && resource.data.get('role', '') != 'shop_admin'
+        && resource.data.get('companyId', '') == userDoc().companyId
+        && (
+          // Still in shop, or unlinked
+          request.resource.data.get('companyId', '') == userDoc().companyId
+          || request.resource.data.get('companyId', null) == null
+        )
+        && (
+          // Role stays staff-level only
+          !('role' in request.resource.data)
+          || request.resource.data.role in ['tech', 'parts_manager']
+        );
     }
 
     match /users/{userId} {
       allow read, create, update: if signedIn() && request.auth.uid == userId && accountActive();
       allow read, update: if isPlatformAdmin();
-      allow read, update: if isShopAdmin()
+      allow read: if isShopAdmin()
         && resource.data.get('companyId', '') == userDoc().companyId
         && resource.data.get('role', '') != 'platform_admin';
+      allow update: if shopOwnerManagingStaff();
     }
 
     match /inviteCodes/{code} {
@@ -87,11 +110,6 @@ service cloud.firestore {
         allow read, write: if isPlatformAdmin() || sameCompany(companyId);
       }
 
-      /**
-       * Part requests — must be published in Firebase Console for the app
-       * parts inbox / "Request a part" to work. Without this block, Firestore
-       * returns "Missing or insufficient permissions".
-       */
       match /partRequests/{requestId} {
         allow read, list: if canUsePartRequests(companyId);
         allow create: if canUsePartRequests(companyId);
