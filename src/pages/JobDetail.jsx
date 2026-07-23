@@ -1025,9 +1025,11 @@ export default function JobDetail({ job, onBack }) {
                 <MessageSquare size={14} /> Notify customer
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                Sends via Twilio. Paid SMS uses your real status wording. Email uses personalized
-                variables (first name, vehicle, RO, status). Turn channels on in Master Control and
-                set Twilio env vars on Vercel.
+                One shared Twilio number for all shops. Texts say “do not reply,” the new status, and
+                call <b>{company?.name || 'this shop'}</b>
+                {shopPhone ? ` at ${shopPhone}` : ' (set shop phone in Master Control)'}. Email shows
+                the shop name; replies go to the shop email when set. Turn channels on in Master
+                Control + customer opt-in below.
               </p>
               <button
                 type="button"

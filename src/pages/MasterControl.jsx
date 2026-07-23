@@ -592,8 +592,9 @@ function ShopEditor({ company, onSaved, onDeleted }) {
               onToggle={() => setCustomerStatusSms((v) => !v)}
             />
             <p className="text-[10px] text-slate-400 leading-relaxed">
-              When on: jobs with text opt-in + phone get auto SMS for statuses checked below (and a
-              manual “Text now” on the job). Requires Twilio env vars on Vercel.
+              Shared Twilio number for all shops. SMS: “Do not reply… status is X… call this shop at
+              shop phone.” Needs shop phone below + Twilio env on Vercel. Account must be Trust Hub
+              approved / A2P ready.
             </p>
             <ToggleRow
               label="Customer status emails (Twilio)"
@@ -601,15 +602,15 @@ function ShopEditor({ company, onSaved, onDeleted }) {
               onToggle={() => setCustomerStatusEmails((v) => !v)}
             />
             <p className="text-[10px] text-slate-400 leading-relaxed">
-              Personalized email via Twilio (name, vehicle, RO, status). Needs{' '}
-              <b>TWILIO_EMAIL_FROM</b> (verified sender) on Vercel.
+              From display name = shop name; Reply-To = shop email (replies go to the shop). Needs{' '}
+              <b>TWILIO_EMAIL_FROM</b> verified on your platform domain + shop email set below.
             </p>
           </div>
         </div>
 
         <div className="mt-4 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
           <div>
-            <label className="lbl">Shop phone (shown in customer texts / emails)</label>
+            <label className="lbl">Shop phone (required for good status texts)</label>
             <input
               type="tel"
               className="field font-bold"
@@ -618,7 +619,8 @@ function ShopEditor({ company, onSaved, onDeleted }) {
               placeholder="(555) 555-5555"
             />
             <p className="text-[10px] text-slate-400 mt-1">
-              Customers can call this number — SMS still sends from your Twilio number.
+              Put in every customer text/email: “call [shop name] at this number.” Texts still send
+              from your one Twilio number (not this phone).
             </p>
           </div>
           <div className="section-title mb-2">Notify customer on these statuses</div>

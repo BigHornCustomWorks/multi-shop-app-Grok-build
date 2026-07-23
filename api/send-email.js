@@ -145,9 +145,11 @@ export default async function handler(req, res) {
       'Hey {{ firstName | default: "there" }}, your vehicle status has been updated.';
 
     const fromAddress = env('TWILIO_EMAIL_FROM');
+    // Display name = shop name so inbox shows "Big Horn Body Shop" not the app
     const fromName =
-      env('TWILIO_EMAIL_FROM_NAME') ||
       String(body.fromName || '').trim() ||
+      String(variables.shopName || '').trim() ||
+      env('TWILIO_EMAIL_FROM_NAME') ||
       'Shop updates';
     const replyTo = String(body.replyTo || '').trim();
 
@@ -157,7 +159,7 @@ export default async function handler(req, res) {
     if (!isEmail(fromAddress)) {
       return json(res, 500, {
         error:
-          'TWILIO_EMAIL_FROM is not set (or invalid) on the server. Use a sender address verified in Twilio Email / SendGrid, then Redeploy.',
+          'TWILIO_EMAIL_FROM is not set (or invalid) on the server. Use a sender address verified in Twilio Email (e.g. updates@bhcustomworks.com), then Redeploy.',
       });
     }
 
@@ -176,7 +178,7 @@ export default async function handler(req, res) {
             vehicle: String(variables.vehicle || ''),
             roNumber: String(variables.roNumber || ''),
             status: String(variables.status || ''),
-            shopName: String(variables.shopName || ''),
+            shopName: String(variables.shopName || fromName || ''),
             shopPhone: String(variables.shopPhone || ''),
           },
         },
@@ -188,11 +190,15 @@ export default async function handler(req, res) {
       },
     };
 
-    // Reply-To so customers reach the shop (when From is a platform/Twilio domain)
+    /**
+     * Reply-To = shop contact email so customer replies go to the shop,
+     * not the platform noreply address. True "from shop@their-domain.com"
+     * needs each shop's domain verified in Twilio (not practical multi-tenant);
+     * From display name + Reply-To is the standard approach.
+     */
     if (isEmail(replyTo)) {
-      payload.reply_to = { address: replyTo };
-      // Some Twilio Email API variants use camelCase replyTo
-      payload.replyTo = { address: replyTo };
+      payload.reply_to = { address: replyTo, name: fromName };
+      payload.replyTo = { address: replyTo, name: fromName };
     }
 
     const authorization = twilioBasicAuth();
