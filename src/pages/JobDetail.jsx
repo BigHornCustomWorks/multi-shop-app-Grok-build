@@ -70,6 +70,7 @@ export default function JobDetail({ job, onBack }) {
   const [shareMsg, setShareMsg] = useState('');
   const [selectedPartIds, setSelectedPartIds] = useState([]);
   const [bulkLocation, setBulkLocation] = useState('');
+  const [bulkStatus, setBulkStatus] = useState('');
   const [scanPickerOpen, setScanPickerOpen] = useState(false);
   const [scanMode, setScanMode] = useState('ccc_estimate');
   const [reqDesc, setReqDesc] = useState('');
@@ -200,15 +201,27 @@ export default function JobDetail({ job, onBack }) {
 
   const clearPartSelection = () => setSelectedPartIds([]);
 
+  const applyBulkToSelected = (fields) => {
+    if (selectedPartIds.length === 0) return;
+    const selected = new Set(selectedPartIds);
+    const parts = (form.parts || []).map((p) =>
+      selected.has(p.id) ? { ...p, ...fields } : p
+    );
+    update('parts', parts);
+  };
+
   const applyBulkLocation = () => {
     const loc = bulkLocation.trim();
     if (!loc || selectedPartIds.length === 0) return;
-    const selected = new Set(selectedPartIds);
-    const parts = (form.parts || []).map((p) =>
-      selected.has(p.id) ? { ...p, location: loc } : p
-    );
-    update('parts', parts);
+    applyBulkToSelected({ location: loc });
     setBulkLocation('');
+  };
+
+  const applyBulkStatus = () => {
+    const st = bulkStatus.trim();
+    if (!st || selectedPartIds.length === 0) return;
+    applyBulkToSelected({ status: st });
+    setBulkStatus('');
   };
 
   const patchPart = (partId, fields) => {
@@ -1283,8 +1296,8 @@ export default function JobDetail({ job, onBack }) {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     {selectedPartIds.length > 0
-                      ? `${selectedPartIds.length} selected`
-                      : 'Select parts to move together'}
+                      ? `${selectedPartIds.length} selected — bulk update`
+                      : 'Select parts to update location / order status together'}
                   </span>
                   <div className="flex gap-2">
                     <button
@@ -1306,42 +1319,80 @@ export default function JobDetail({ job, onBack }) {
                   </div>
                 </div>
                 {selectedPartIds.length > 0 && (
-                  <div className="flex gap-2 items-end">
-                    <div className="flex-1">
-                      <label className="lbl">Set location for selected</label>
-                      <input
-                        className="field text-sm font-bold"
-                        list="part-location-suggestions"
-                        placeholder="e.g. Cage A, Tech cart, Bay 3…"
-                        value={bulkLocation}
-                        onChange={(e) => setBulkLocation(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            applyBulkLocation();
-                          }
-                        }}
-                      />
+                  <div className="space-y-2.5">
+                    <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
+                      <div className="flex-1 min-w-0">
+                        <label className="lbl">Location for selected (type freely)</label>
+                        <input
+                          className="field text-sm font-bold"
+                          placeholder="e.g. Cage A, Tech cart, Bay 3…"
+                          value={bulkLocation}
+                          onChange={(e) => setBulkLocation(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              applyBulkLocation();
+                            }
+                          }}
+                        />
+                        {partLocations.length > 0 && (
+                          <select
+                            className="field text-[11px] font-bold py-2 mt-1.5"
+                            value=""
+                            onChange={(e) => {
+                              if (!e.target.value) return;
+                              setBulkLocation(e.target.value);
+                            }}
+                          >
+                            <option value="">Quick pick location…</option>
+                            {partLocations.map((l) => (
+                              <option key={l} value={l}>
+                                {l}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={applyBulkLocation}
+                        disabled={!bulkLocation.trim()}
+                        className="shrink-0 py-3 px-4 rounded-xl text-white text-[11px] font-black uppercase disabled:opacity-40 shadow-md"
+                        style={{ backgroundColor: primary }}
+                      >
+                        Apply location
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={applyBulkLocation}
-                      disabled={!bulkLocation.trim()}
-                      className="shrink-0 py-3 px-4 rounded-xl text-white text-[11px] font-black uppercase disabled:opacity-40 shadow-md"
-                      style={{ backgroundColor: primary }}
-                    >
-                      Apply
-                    </button>
+                    <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
+                      <div className="flex-1 min-w-0">
+                        <label className="lbl">Order status for selected</label>
+                        <select
+                          className="field text-sm font-bold"
+                          value={bulkStatus}
+                          onChange={(e) => setBulkStatus(e.target.value)}
+                        >
+                          <option value="">Choose status…</option>
+                          {partStatuses.map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={applyBulkStatus}
+                        disabled={!bulkStatus}
+                        className="shrink-0 py-3 px-4 rounded-xl text-white text-[11px] font-black uppercase disabled:opacity-40 shadow-md"
+                        style={{ backgroundColor: primary }}
+                      >
+                        Apply status
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
             )}
-
-            <datalist id="part-location-suggestions">
-              {partLocations.map((l) => (
-                <option key={l} value={l} />
-              ))}
-            </datalist>
 
             {(form.parts || []).map((part) => {
               const isSelected = selectedPartIds.includes(part.id);
@@ -1363,7 +1414,7 @@ export default function JobDetail({ job, onBack }) {
                         checked={isSelected}
                         onChange={() => togglePartSelected(part.id)}
                         className="h-5 w-5 rounded border-slate-300 accent-blue-600"
-                        title="Select for bulk location"
+                        title="Select for bulk location / status"
                       />
                     </label>
                     <div className="flex-1 space-y-2.5 min-w-0">
@@ -1398,14 +1449,21 @@ export default function JobDetail({ job, onBack }) {
                           }
                         />
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
                           <label className="lbl">Order status</label>
                           <select
                             className="field text-[11px] font-bold py-2"
-                            value={part.status || partStatuses[0]}
+                            value={
+                              partStatuses.includes(part.status)
+                                ? part.status
+                                : part.status || partStatuses[0] || ''
+                            }
                             onChange={(e) => patchPart(part.id, { status: e.target.value })}
                           >
+                            {part.status && !partStatuses.includes(part.status) && (
+                              <option value={part.status}>{part.status}</option>
+                            )}
                             {partStatuses.map((s) => (
                               <option key={s} value={s}>
                                 {s}
@@ -1414,14 +1472,30 @@ export default function JobDetail({ job, onBack }) {
                           </select>
                         </div>
                         <div>
-                          <label className="lbl">Parts location</label>
+                          <label className="lbl">Parts location (type freely)</label>
                           <input
                             className="field text-[11px] font-bold"
-                            list="part-location-suggestions"
                             value={part.location || ''}
-                            placeholder="Type location…"
+                            placeholder="Type any location…"
                             onChange={(e) => patchPart(part.id, { location: e.target.value })}
                           />
+                          {partLocations.length > 0 && (
+                            <select
+                              className="field text-[11px] font-bold py-2 mt-1.5"
+                              value=""
+                              onChange={(e) => {
+                                if (!e.target.value) return;
+                                patchPart(part.id, { location: e.target.value });
+                              }}
+                            >
+                              <option value="">Quick pick…</option>
+                              {partLocations.map((l) => (
+                                <option key={l} value={l}>
+                                  {l}
+                                </option>
+                              ))}
+                            </select>
+                          )}
                         </div>
                       </div>
                       <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center gap-2">
