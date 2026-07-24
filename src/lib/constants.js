@@ -132,6 +132,38 @@ export function defaultCompanySettings() {
   };
 }
 
+const LIST_SETTING_KEYS = [
+  'vehicleLocations',
+  'repairStatuses',
+  'partStatuses',
+  'partLocations',
+  'returnReasons',
+  'technicians',
+  'notifyStatuses',
+];
+
+/**
+ * Merge stored company.settings with defaults and force list fields to real arrays.
+ * Prevents “Cannot read properties of undefined (reading 'length')” when a shop
+ * doc is missing technicians / statuses / locations.
+ */
+export function normalizeCompanySettings(raw) {
+  const base = defaultCompanySettings();
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const out = { ...base, ...src };
+  for (const key of LIST_SETTING_KEYS) {
+    if (Array.isArray(out[key])) {
+      out[key] = out[key]
+        .map((x) => (x == null ? '' : String(x).trim()))
+        .filter(Boolean);
+    } else {
+      out[key] = Array.isArray(base[key]) ? [...base[key]] : [];
+    }
+  }
+  out.shopPhone = String(out.shopPhone || '').trim();
+  return out;
+}
+
 export function defaultCompanyFeatures() {
   return {
     invoiceScanner: false, // paid upgrade

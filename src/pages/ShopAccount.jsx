@@ -21,6 +21,7 @@ import {
   roleLabel,
   OWNER_ASSIGNABLE_ROLES,
   defaultCompanySettings,
+  normalizeCompanySettings,
 } from '../lib/constants';
 import {
   listCompanyUsers,
@@ -46,29 +47,31 @@ export default function ShopAccount({ onBack }) {
   const [userBusyId, setUserBusyId] = useState(null);
   const [copied, setCopied] = useState(false);
   const [staffMsg, setStaffMsg] = useState('');
-  const [settings, setSettings] = useState(() => ({
-    ...defaultCompanySettings(),
-    ...(company?.settings || {}),
-  }));
+  const [settings, setSettings] = useState(() =>
+    normalizeCompanySettings(company?.settings)
+  );
   const [settingsBusy, setSettingsBusy] = useState(false);
 
   const reloadUsers = () => {
     if (!company?.id) return;
-    listCompanyUsers(company.id).then(setUsers).catch(console.error);
+    listCompanyUsers(company.id)
+      .then((list) => setUsers(Array.isArray(list) ? list : []))
+      .catch((err) => {
+        console.error(err);
+        setUsers([]);
+        setStaffMsg(err?.message || 'Could not load team list');
+      });
   };
 
   useEffect(() => {
     if (canManageTeam && company?.id) reloadUsers();
   }, [canManageTeam, company?.id]);
 
-  const activeSeats = countActiveSeats(users);
+  const activeSeats = countActiveSeats(Array.isArray(users) ? users : []);
   const overSeats = canManageTeam && activeSeats > Number(seatLimit || 0);
 
   useEffect(() => {
-    setSettings({
-      ...defaultCompanySettings(),
-      ...(company?.settings || {}),
-    });
+    setSettings(normalizeCompanySettings(company?.settings));
   }, [company?.id, company?.settings]);
 
   const copyInvite = async () => {
@@ -82,25 +85,18 @@ export default function ShopAccount({ onBack }) {
   };
 
   const patchSettings = async (key, value) => {
-    const next = { ...settings, [key]: value };
+    const next = normalizeCompanySettings({ ...settings, [key]: value });
     setSettings(next);
     if (!company?.id) return;
     setSettingsBusy(true);
     try {
-      await updateCompany(company.id, {
-        settings: {
-          ...(company.settings || {}),
-          ...next,
-        },
-      });
+      // Always write a full normalized settings object (never partial lists)
+      await updateCompany(company.id, { settings: next });
       setStaffMsg('List saved (order applies to dropdowns).');
       setTimeout(() => setStaffMsg(''), 2500);
     } catch (err) {
       setStaffMsg(err.message || 'Could not save list');
-      setSettings({
-        ...defaultCompanySettings(),
-        ...(company?.settings || {}),
-      });
+      setSettings(normalizeCompanySettings(company?.settings));
     } finally {
       setSettingsBusy(false);
     }
@@ -186,22 +182,28 @@ export default function ShopAccount({ onBack }) {
 
             <div className="app-card p-5">
               <h3 className="section-title mb-2">
-                <Users size={14} /> Team ({users.length})
+                <Users size={14} /> Team ({(users || []).length})
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">
                 Set role, deactivate (blocks login), or remove from this shop. You cannot change
                 other Owners — contact platform support for that.
               </p>
               {staffMsg && (
-                <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300 mb-2">
+                <p
+                  className={`text-xs font-bold mb-2 ${
+                    /could not|fail|permission|denied|error/i.test(staffMsg)
+                      ? 'text-red-600 dark:text-red-300'
+                      : 'text-emerald-700 dark:text-emerald-300'
+                  }`}
+                >
                   {staffMsg}
                 </p>
               )}
-              {users.length === 0 ? (
+              {(users || []).length === 0 ? (
                 <p className="text-sm text-slate-400">No linked users yet.</p>
               ) : (
                 <ul className="space-y-2">
-                  {users.map((u) => {
+                  {(users || []).map((u) => {
                     const accountOn = isUserAccountActive(u);
                     const busy = userBusyId === u.id;
                     const isSelf = u.id === user?.uid;
@@ -427,7 +429,7 @@ export default function ShopAccount({ onBack }) {
                 <b>not</b> use the app.
               </p>
               {(() => {
-                const fromTeam = techNamesFromTeam(users);
+                const fromTeam = techNamesFromTeam(users || []);
                 return fromTeam.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
                     {fromTeam.map((n) => (
@@ -448,10 +450,10 @@ export default function ShopAccount({ onBack }) {
               <div className={settingsBusy ? 'opacity-60 pointer-events-none' : ''}>
                 <EditableList
                   title="Extra tech names (not on the app)"
-                  items={settings.technicians}
-                  onChange={(v) => patchSettings('technicians', v)}
+                  items={settings.technicians || []}
+                  onChange={(v) => patchSettings('technicians', Array.isArray(v) ? v : [])}
                   placeholder="Name as shown on jobs"
-                  defaultOpen={false}
+                  defaultOpen={true}
                 />
               </div>
             </div>

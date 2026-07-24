@@ -24,8 +24,13 @@ export default function EditableList({
 
   const add = () => {
     if (!draft.trim() || disabled) return;
-    onChange([...list, draft.trim()]);
-    setDraft('');
+    if (typeof onChange !== 'function') return;
+    try {
+      onChange([...list, draft.trim()]);
+      setDraft('');
+    } catch (err) {
+      console.error('EditableList add failed', err);
+    }
   };
 
   const moveItem = (from, to) => {

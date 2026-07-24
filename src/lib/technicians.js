@@ -19,7 +19,8 @@ export function teamMemberDisplayName(user) {
 export function techNamesFromTeam(users = []) {
   const names = [];
   const seen = new Set();
-  for (const u of users) {
+  const list = Array.isArray(users) ? users : [];
+  for (const u of list) {
     if (!u || u.role !== ROLES.TECH) continue;
     if (!isUserAccountActive(u)) continue;
     const label = teamMemberDisplayName(u);
@@ -46,7 +47,7 @@ export function extraTechNames(settingsTechnicians = []) {
  * team Techs first (by default), then any manual extras not already covered.
  */
 export function mergeTechnicianOptions(users = [], settingsTechnicians = []) {
-  const fromTeam = techNamesFromTeam(users);
+  const fromTeam = techNamesFromTeam(Array.isArray(users) ? users : []);
   const teamKeys = new Set(fromTeam.map((n) => n.toLowerCase()));
   const extras = [];
   for (const n of extraTechNames(settingsTechnicians)) {

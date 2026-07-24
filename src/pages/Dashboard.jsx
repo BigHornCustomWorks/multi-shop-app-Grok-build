@@ -32,8 +32,9 @@ function partsNeedingReturn(job) {
 function normalizeFilter(value, technicians) {
   const v = value || 'all';
   if (v === 'all' || v === 'unassigned') return v;
+  const list = Array.isArray(technicians) ? technicians : [];
   // Keep tech name even if temporarily missing from list (still matches jobs)
-  if (technicians.includes(v) || v) return v;
+  if (list.includes(v) || v) return v;
   return 'all';
 }
 
@@ -55,7 +56,7 @@ export default function Dashboard({ onOpenJob, onOpenSettings, onOpenParts }) {
 
   const settings = company?.settings || {};
   const technicians = useMemo(
-    () => mergeTechnicianOptions(teamUsers, settings.technicians),
+    () => mergeTechnicianOptions(teamUsers || [], settings.technicians || []),
     [teamUsers, settings.technicians]
   );
   const repairStatuses = settings.repairStatuses || [];
@@ -158,7 +159,7 @@ export default function Dashboard({ onOpenJob, onOpenSettings, onOpenParts }) {
       { value: 'unassigned', label: 'Unassigned' },
     ];
     const seen = new Set(['all', 'unassigned']);
-    technicians.forEach((t) => {
+    (Array.isArray(technicians) ? technicians : []).forEach((t) => {
       if (!seen.has(t)) {
         opts.push({ value: t, label: t });
         seen.add(t);

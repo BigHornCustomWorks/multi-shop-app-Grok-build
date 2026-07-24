@@ -40,6 +40,7 @@ import {
 } from '../lib/api';
 import {
   defaultCompanySettings,
+  normalizeCompanySettings,
   DEFAULT_BRANDING,
   ROLES,
   PLANS,
@@ -287,11 +288,9 @@ function ShopEditor({ company, onSaved, onDeleted }) {
   const [locationPillColor, setLocationPillColor] = useState(
     company.branding?.locationPillColor || DEFAULT_BRANDING.locationPillColor
   );
-  const [settings, setSettings] = useState(() => ({
-    ...defaultCompanySettings(),
-    ...(company.settings || {}),
-    notifyStatuses: company.settings?.notifyStatuses || [],
-  }));
+  const [settings, setSettings] = useState(() =>
+    normalizeCompanySettings(company.settings)
+  );
   const [contactEmail, setContactEmail] = useState(company.contactEmail || '');
   const [plan, setPlan] = useState(company.plan || 'starter');
   const [seatLimit, setSeatLimit] = useState(
@@ -327,19 +326,28 @@ function ShopEditor({ company, onSaved, onDeleted }) {
   }, [company.id, company.twilioA2pStatus]);
 
   const reloadUsers = () => {
-    listCompanyUsers(company.id).then(setUsers).catch(console.error);
+    listCompanyUsers(company.id)
+      .then((list) => setUsers(Array.isArray(list) ? list : []))
+      .catch((err) => {
+        console.error(err);
+        setUsers([]);
+      });
   };
 
   useEffect(() => {
     reloadUsers();
   }, [company.id]);
 
-  const activeSeats = countActiveSeats(users);
+  const activeSeats = countActiveSeats(Array.isArray(users) ? users : []);
   const overSeats = activeSeats > Number(seatLimit || 0);
 
   const save = async () => {
     setBusy(true);
     try {
+      const normalizedSettings = normalizeCompanySettings({
+        ...settings,
+        shopPhone: shopPhone.trim(),
+      });
       await updateCompany(company.id, {
         name: name.trim() || company.name,
         contactEmail: contactEmail.trim().toLowerCase(),
@@ -351,10 +359,7 @@ function ShopEditor({ company, onSaved, onDeleted }) {
           statusPillColor,
           locationPillColor,
         },
-        settings: {
-          ...settings,
-          shopPhone: shopPhone.trim(),
-        },
+        settings: normalizedSettings,
         contactPhone: shopPhone.trim(),
         features: {
           ...(company.features || {}),
@@ -402,7 +407,11 @@ function ShopEditor({ company, onSaved, onDeleted }) {
 
   /** Update local settings; for list fields, also save immediately (drag order). */
   const patchSettings = async (key, value) => {
-    const nextSettings = { ...settings, [key]: value };
+    const nextSettings = normalizeCompanySettings({
+      ...settings,
+      [key]: value,
+      shopPhone: shopPhone.trim(),
+    });
     setSettings(nextSettings);
 
     const listKeys = [
@@ -418,20 +427,12 @@ function ShopEditor({ company, onSaved, onDeleted }) {
     setListBusy(true);
     try {
       await updateCompany(company.id, {
-        settings: {
-          ...(company.settings || {}),
-          ...nextSettings,
-          shopPhone: shopPhone.trim(),
-        },
+        settings: nextSettings,
       });
       onSaved('List order saved (top of list = first in dropdowns).');
     } catch (err) {
       onSaved(err.message || 'Could not save list');
-      setSettings({
-        ...defaultCompanySettings(),
-        ...(company.settings || {}),
-        notifyStatuses: company.settings?.notifyStatuses || [],
-      });
+      setSettings(normalizeCompanySettings(company.settings));
     } finally {
       setListBusy(false);
     }
@@ -1047,10 +1048,10 @@ function ShopEditor({ company, onSaved, onDeleted }) {
             </p>
             <EditableList
               title="Extra tech names (not app users)"
-              items={settings.technicians}
-              onChange={(v) => patchSettings('technicians', v)}
+              items={settings.technicians || []}
+              onChange={(v) => patchSettings('technicians', Array.isArray(v) ? v : [])}
               placeholder="Tech name as shown on jobs"
-              defaultOpen={false}
+              defaultOpen={true}
             />
           </div>
         </div>
@@ -1058,20 +1059,21 @@ function ShopEditor({ company, onSaved, onDeleted }) {
 
       <div className="app-card p-5">
         <h3 className="section-title mb-3">
-          <Users size={14} /> Linked users ({users.length}) · seats {activeSeats}/{seatLimit}
+          <Users size={14} /> Linked users ({(users || []).length}) · seats {activeSeats}/
+          {seatLimit}
         </h3>
         <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">
           Assign one <b>Owner</b> (billing contact / manager) so they can invite staff, set Tech or
           Parts roles, and deactivate people from the shop Settings menu. Only you can appoint or
           change Owners. Use <b>Deactivate</b> / <b>Remove</b> as needed.
         </p>
-        {users.length === 0 ? (
+        {(users || []).length === 0 ? (
           <p className="text-sm text-slate-400">
             No users linked yet. Staff sign up in the app and join with this shop’s invite code.
           </p>
         ) : (
           <ul className="space-y-2">
-            {users.map((u) => {
+            {(users || []).map((u) => {
               const accountOn = isUserAccountActive(u);
               const busy = userBusyId === u.id;
               return (
