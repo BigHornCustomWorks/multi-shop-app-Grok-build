@@ -617,7 +617,7 @@ function ShopEditor({ company, onSaved, onDeleted }) {
 
       {!active && (
         <div className="p-3 rounded-xl border border-amber-400 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-100 text-xs font-bold">
-          This shop is paused — staff cannot use the app. Scroll to Shop access below Save to resume.
+          This shop is paused — staff cannot use the app. Scroll to Shop access to resume.
         </div>
       )}
 
@@ -656,16 +656,28 @@ function ShopEditor({ company, onSaved, onDeleted }) {
             </div>
           </div>
 
-          <label className="inline-flex items-center gap-2 px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 text-sm font-bold transition-colors">
-            {uploading ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
-            Upload logo (JPG/PNG)
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/jpg"
-              className="hidden"
-              onChange={onLogo}
-            />
-          </label>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <label className="inline-flex items-center gap-2 px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 text-sm font-bold transition-colors">
+              {uploading ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
+              Upload logo (JPG/PNG)
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/jpg"
+                className="hidden"
+                onChange={onLogo}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={save}
+              disabled={busy}
+              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-white text-sm font-black uppercase tracking-wide shadow-md disabled:opacity-50 active:scale-[0.99] transition-transform"
+              style={{ backgroundColor: primaryColor }}
+            >
+              {busy && <Loader2 size={16} className="animate-spin" />}
+              Save
+            </button>
+          </div>
         </div>
 
         {/* Billing / seats / shop email */}
@@ -1288,22 +1300,13 @@ function ShopEditor({ company, onSaved, onDeleted }) {
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={save}
-        disabled={busy}
-        className="w-full py-4 rounded-2xl text-white font-black uppercase tracking-widest shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform"
-        style={{ backgroundColor: primaryColor }}
-      >
-        {busy && <Loader2 size={16} className="animate-spin" />}
-        Save shop settings
-      </button>
-
       <p className="text-[10px] text-slate-400 text-center flex items-center justify-center gap-1">
-        <ArrowLeft size={10} /> Shops cannot edit these lists — only Master Control can.
+        <ArrowLeft size={10} /> Use <b className="mx-1">Save</b> at the top (next to Upload logo) for name,
+        plan, colors, and features already saved live where noted. Shops cannot edit lists — only Master
+        Control can.
       </p>
 
-      {/* Access control — pause / delete (below save) */}
+      {/* Access control — pause / delete */}
       <div
         className={`app-card p-5 border-2 ${
           active
