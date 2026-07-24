@@ -18,6 +18,8 @@ import {
   PlayCircle,
   Trash2,
   AlertTriangle,
+  Phone,
+  PhoneOff,
 } from 'lucide-react';
 import { APP_NAME } from '../config';
 import { useAuth } from '../context/AuthContext';
@@ -46,6 +48,8 @@ import {
   roleLabel,
 } from '../lib/constants';
 import EditableList from '../components/EditableList';
+import { provisionTwilioNumber, releaseTwilioNumber } from '../lib/twilioClient';
+import { TWILIO_A2P_STATUSES, companyCanSendSms } from '../lib/twilioShop';
 
 export default function MasterControl() {
   const { logout, user } = useAuth();
@@ -84,8 +88,21 @@ export default function MasterControl() {
       setNewName('');
       setCreating(false);
       setSelectedId(c.id);
+      // Auto-provision a local Twilio number (shop kept if this fails)
+      let provisionNote = '';
+      try {
+        const prov = await provisionTwilioNumber({
+          companyId: c.id,
+          action: 'purchase',
+        });
+        provisionNote = prov.phoneNumber
+          ? ` Twilio number ${prov.phoneNumber} provisioned — set A2P to Registered when campaign is approved.`
+          : ' Twilio provision ran.';
+      } catch (provErr) {
+        provisionNote = ` Twilio number not ready yet (${provErr.message || 'provision failed'}). Retry or assign manually below.`;
+      }
       setMessage(
-        `Created “${c.name}”. Upload logo and set locations, then share the invite code with shop staff.`
+        `Created “${c.name}”. Upload logo and set locations, then share the invite code with shop staff.${provisionNote}`
       );
     } catch (err) {
       setMessage(err.message || 'Create failed');
@@ -298,6 +315,16 @@ function ShopEditor({ company, onSaved, onDeleted }) {
   const [users, setUsers] = useState([]);
   const [userBusyId, setUserBusyId] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState('');
+  const [twilioBusy, setTwilioBusy] = useState(false);
+  const [manualNumber, setManualNumber] = useState('');
+  const [manualSid, setManualSid] = useState('');
+  const [areaCodePref, setAreaCodePref] = useState('');
+  const [a2pStatus, setA2pStatus] = useState(company.twilioA2pStatus || 'none');
+
+  // Keep A2P local state in sync when company snapshot updates after provision
+  useEffect(() => {
+    setA2pStatus(company.twilioA2pStatus || 'none');
+  }, [company.id, company.twilioA2pStatus]);
 
   const reloadUsers = () => {
     listCompanyUsers(company.id).then(setUsers).catch(console.error);
@@ -451,7 +478,7 @@ function ShopEditor({ company, onSaved, onDeleted }) {
     }
     if (
       !window.confirm(
-        `Permanently delete “${company.name}” from Master Control?\n\n• Staff will be unlinked\n• Invite code removed\n• Shop disappears from this list\n\nThis cannot be undone from the app.`
+        `Permanently delete “${company.name}” from Master Control?\n\n• Twilio SMS number will be released (stops billing)\n• Staff will be unlinked\n• Invite code removed\n• Shop disappears from this list\n\nThis cannot be undone from the app.`
       )
     ) {
       return;
@@ -459,16 +486,84 @@ function ShopEditor({ company, onSaved, onDeleted }) {
     setAccessBusy(true);
     try {
       const result = await deleteCompany(company.id, company.inviteCode);
+      const released = result.release?.releasedNumber
+        ? ` Number ${result.release.releasedNumber} released.`
+        : '';
       onSaved(
         `Deleted “${company.name}” (${result.unlinkedUsers} user${
           result.unlinkedUsers === 1 ? '' : 's'
-        } unlinked).`
+        } unlinked).${released}`
       );
       onDeleted?.();
     } catch (err) {
       onSaved(err.message || 'Could not delete shop');
     } finally {
       setAccessBusy(false);
+    }
+  };
+
+  const runProvision = async (action) => {
+    setTwilioBusy(true);
+    try {
+      const result = await provisionTwilioNumber({
+        companyId: company.id,
+        action,
+        areaCode: areaCodePref || undefined,
+        phoneNumber: action === 'assign' ? manualNumber : undefined,
+        phoneSid: action === 'assign' ? manualSid || undefined : undefined,
+      });
+      if (action === 'assign') {
+        setManualNumber('');
+        setManualSid('');
+      }
+      onSaved(
+        action === 'migrate'
+          ? `Migrated env number ${result.phoneNumber} onto this shop. Mark A2P Registered when ready.`
+          : action === 'assign'
+            ? `Assigned ${result.phoneNumber} to this shop.`
+            : `Provisioned ${result.phoneNumber}. Mark A2P Registered after 10DLC approval.`
+      );
+    } catch (err) {
+      onSaved(err.message || 'Twilio action failed');
+    } finally {
+      setTwilioBusy(false);
+    }
+  };
+
+  const runReleaseNumber = async () => {
+    if (
+      !window.confirm(
+        `Release Twilio number ${company.twilioSmsNumber || '(unknown)'} for “${company.name}”?\n\nThe number will be removed from Twilio (stops monthly charge) and cleared on this shop. You can provision a new one later.`
+      )
+    ) {
+      return;
+    }
+    setTwilioBusy(true);
+    try {
+      const result = await releaseTwilioNumber({ companyId: company.id });
+      onSaved(
+        result.skipped
+          ? 'No number to release.'
+          : `Released ${result.releasedNumber || 'number'}. Status set to released.`
+      );
+    } catch (err) {
+      onSaved(err.message || 'Release failed');
+    } finally {
+      setTwilioBusy(false);
+    }
+  };
+
+  const saveA2pStatus = async (next) => {
+    setA2pStatus(next);
+    setTwilioBusy(true);
+    try {
+      await updateCompany(company.id, { twilioA2pStatus: next });
+      onSaved(`A2P status set to “${next}”.`);
+    } catch (err) {
+      onSaved(err.message || 'Could not update A2P status');
+      setA2pStatus(company.twilioA2pStatus || 'none');
+    } finally {
+      setTwilioBusy(false);
     }
   };
 
@@ -592,9 +687,9 @@ function ShopEditor({ company, onSaved, onDeleted }) {
               onToggle={() => setCustomerStatusSms((v) => !v)}
             />
             <p className="text-[10px] text-slate-400 leading-relaxed">
-              Shared Twilio number for all shops. SMS: “Do not reply… status is X… call this shop at
-              shop phone.” Needs shop phone below + Twilio env on Vercel. Account must be Trust Hub
-              approved / A2P ready.
+              Each shop sends from its own Twilio number (see Twilio SMS number section). Message
+              still says “call [shop] at shop phone.” Outbound requires A2P = Registered. Platform
+              Twilio SID/token stay in Vercel env.
             </p>
             <ToggleRow
               label="Customer status emails (Twilio)"
@@ -619,10 +714,172 @@ function ShopEditor({ company, onSaved, onDeleted }) {
               placeholder="(555) 555-5555"
             />
             <p className="text-[10px] text-slate-400 mt-1">
-              Put in every customer text/email: “call [shop name] at this number.” Texts still send
-              from your one Twilio number (not this phone).
+              Business “call us” line in every status text/email — not the Twilio sender. Prefer
+              local area code matching this number when provisioning.
             </p>
           </div>
+
+          {/* Per-shop Twilio number (multi-tenant) */}
+          <div className="p-4 rounded-2xl border border-violet-200 dark:border-violet-900 bg-violet-50/50 dark:bg-violet-950/20 space-y-3">
+            <div className="flex items-start gap-2">
+              <Phone size={16} className="text-violet-600 dark:text-violet-400 mt-0.5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="section-title mb-1 text-violet-900 dark:text-violet-200">
+                  Twilio SMS number (this shop only)
+                </div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                  Outbound From number for this shop. No shared env fallback — missing number is a
+                  hard error. A2P must be <b>registered</b> before sends work. Inbound reverse index
+                  is written now; two-way webhook is Phase D.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3 text-sm">
+              <div>
+                <div className="text-[10px] font-bold uppercase text-slate-400">Number</div>
+                <code className="font-mono font-bold text-sm">
+                  {company.twilioSmsNumber || '— none —'}
+                </code>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase text-slate-400">Status</div>
+                <span
+                  className={`inline-block text-[11px] font-black uppercase px-2 py-0.5 rounded-full ${
+                    company.twilioNumberStatus === 'active'
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200'
+                      : company.twilioNumberStatus === 'failed'
+                        ? 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200'
+                        : company.twilioNumberStatus === 'released'
+                          ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
+                          : 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100'
+                  }`}
+                >
+                  {company.twilioNumberStatus || 'none'}
+                </span>
+              </div>
+              {company.twilioPhoneSid ? (
+                <div className="sm:col-span-2">
+                  <div className="text-[10px] font-bold uppercase text-slate-400">Phone SID</div>
+                  <code className="text-[10px] font-mono break-all text-slate-500">
+                    {company.twilioPhoneSid}
+                  </code>
+                </div>
+              ) : null}
+              {company.twilioNumberError ? (
+                <div className="sm:col-span-2 text-xs text-red-700 dark:text-red-300">
+                  {company.twilioNumberError}
+                </div>
+              ) : null}
+            </div>
+
+            {(() => {
+              const gate = companyCanSendSms(company);
+              return (
+                <p
+                  className={`text-[11px] font-medium ${
+                    gate.ok
+                      ? 'text-emerald-700 dark:text-emerald-300'
+                      : 'text-amber-800 dark:text-amber-200'
+                  }`}
+                >
+                  {gate.ok
+                    ? `Ready to send from ${gate.from}`
+                    : `Cannot send yet: ${gate.reason}`}
+                </p>
+              );
+            })()}
+
+            <div>
+              <label className="lbl">A2P 10DLC status (manual for now)</label>
+              <select
+                className="field font-bold"
+                value={a2pStatus}
+                disabled={twilioBusy}
+                onChange={(e) => saveA2pStatus(e.target.value)}
+              >
+                {TWILIO_A2P_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Register brand/campaign in Twilio Console, then set <b>registered</b> here. Campaign
+                automation can come later if volume justifies it.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2 items-end">
+              <div className="w-24">
+                <label className="lbl">Area code</label>
+                <input
+                  className="field text-sm font-mono"
+                  value={areaCodePref}
+                  onChange={(e) => setAreaCodePref(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                  placeholder="307"
+                  maxLength={3}
+                />
+              </div>
+              <button
+                type="button"
+                disabled={twilioBusy || company.twilioNumberStatus === 'active'}
+                onClick={() => runProvision('purchase')}
+                className="px-3 py-2 rounded-xl bg-violet-600 text-white text-xs font-bold uppercase disabled:opacity-50"
+              >
+                {twilioBusy ? '…' : company.twilioNumberStatus === 'failed' ? 'Retry provision' : 'Provision number'}
+              </button>
+              <button
+                type="button"
+                disabled={twilioBusy}
+                onClick={() => runProvision('migrate')}
+                className="px-3 py-2 rounded-xl bg-slate-700 text-white text-xs font-bold uppercase disabled:opacity-50"
+                title="One-time: link TWILIO_FROM_NUMBER env to this shop"
+              >
+                Migrate env number
+              </button>
+              {(company.twilioSmsNumber || company.twilioPhoneSid) && (
+                <button
+                  type="button"
+                  disabled={twilioBusy}
+                  onClick={runReleaseNumber}
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 text-xs font-bold uppercase disabled:opacity-50"
+                >
+                  <PhoneOff size={14} />
+                  Release number
+                </button>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-violet-200 dark:border-violet-900 space-y-2">
+              <div className="text-[10px] font-bold uppercase text-slate-400">
+                Manual assign (number already in Twilio)
+              </div>
+              <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-2">
+                <input
+                  className="field text-sm font-mono"
+                  placeholder="+15551234567"
+                  value={manualNumber}
+                  onChange={(e) => setManualNumber(e.target.value)}
+                />
+                <input
+                  className="field text-sm font-mono"
+                  placeholder="PNxxxx (optional SID)"
+                  value={manualSid}
+                  onChange={(e) => setManualSid(e.target.value)}
+                />
+                <button
+                  type="button"
+                  disabled={twilioBusy || !manualNumber.trim()}
+                  onClick={() => runProvision('assign')}
+                  className="px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-xs font-bold uppercase disabled:opacity-50"
+                >
+                  Assign
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div className="section-title mb-2">Notify customer on these statuses</div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3">
             Auto text and/or email when status matches (and the job has opt-in + contact info + the
@@ -992,8 +1249,8 @@ function ShopEditor({ company, onSaved, onDeleted }) {
         </h3>
         <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
           <b>Pause</b> when they stop paying — staff cannot open the shop app until you resume.{' '}
-          <b>Delete</b> removes the shop from this list and unlinks staff (use when they leave for
-          good).
+          <b>Delete</b> releases the shop’s Twilio number (stops billing), unlinks staff, and removes
+          the shop from this list.
         </p>
         <div className="flex flex-wrap items-center gap-2 mb-4">
           <span

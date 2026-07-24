@@ -47,3 +47,43 @@ export async function checkTwilioStatus() {
   });
   return parseApiResponse(res, 'Twilio status check');
 }
+
+/** POST /api/provision-twilio-number — platform admin */
+export async function provisionTwilioNumber({
+  companyId,
+  action = 'purchase',
+  areaCode,
+  phoneNumber,
+  phoneSid,
+} = {}) {
+  const idToken = await getAuthBearer();
+  const res = await fetch('/api/provision-twilio-number', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({
+      companyId,
+      action,
+      areaCode,
+      phoneNumber,
+      phoneSid,
+    }),
+  });
+  return parseApiResponse(res, 'Provision number');
+}
+
+/** POST /api/release-twilio-number — platform admin */
+export async function releaseTwilioNumber({ companyId, force = false } = {}) {
+  const idToken = await getAuthBearer();
+  const res = await fetch('/api/release-twilio-number', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({ companyId, force }),
+  });
+  return parseApiResponse(res, 'Release number');
+}

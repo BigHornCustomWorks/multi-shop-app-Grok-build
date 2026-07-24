@@ -1,29 +1,26 @@
 import { getAuthBearer, parseApiResponse } from './twilioClient';
 
 /**
- * Status SMS for multi-shop on ONE shared Twilio number.
- * Message identifies the shop so customers know who to call (do not reply to the text).
+ * Status SMS — each shop sends from its own Twilio number (server-side From).
+ * Message still identifies the shop so customers know who to call.
  *
- * Keep under ~160 chars when possible (1 SMS segment). Longer text = more segments = more cost.
+ * Keep under ~160 chars when possible (1 SMS segment).
  */
 export function buildStatusSms({ shopName, vehicle, roNumber, status, shopPhone }) {
   const shop = (shopName || 'your shop').trim();
   const veh = (vehicle || 'your vehicle').trim();
-  // Prefer short vehicle for SMS (year make model only if long CCC line)
   const vehShort =
     veh.length > 48 ? veh.split(/\s+/).slice(0, 5).join(' ').slice(0, 48) : veh;
   const st = (status || 'updated').trim();
   const phone = (shopPhone || '').trim();
   const ro = (roNumber || '').trim();
 
-  // User-requested style: do not reply; status; call shop name + phone
   let msg = `Do not reply. Great news — your vehicle status is now: ${st}.`;
   if (ro) msg += ` (RO ${ro})`;
   msg += ` For questions, call ${shop}`;
   if (phone) msg += ` at ${phone}`;
   msg += '.';
 
-  // Optional vehicle hint if room (avoid ballooning cost)
   if (vehShort && msg.length < 120) {
     msg = `Do not reply. Great news — status for ${vehShort} is now: ${st}.`;
     if (ro) msg += ` (RO ${ro})`;
@@ -32,7 +29,6 @@ export function buildStatusSms({ shopName, vehicle, roNumber, status, shopPhone 
     msg += '.';
   }
 
-  // Carrier opt-out (required for US A2P); STOP still works even if we say do not reply for chat
   if (!/STOP/i.test(msg)) {
     msg += ' Reply STOP to opt out.';
   }
@@ -42,9 +38,14 @@ export function buildStatusSms({ shopName, vehicle, roNumber, status, shopPhone 
 
 /**
  * Call Vercel /api/send-sms (Twilio on the server).
- * Requires the user to be signed in (Firebase ID token).
+ * companyId is required — membership verified server-side; From is the shop number.
  */
-export async function sendStatusSms({ to, message }) {
+export async function sendStatusSms({ to, message, companyId }) {
+  if (!companyId) {
+    throw new Error(
+      'companyId is required to send SMS (each shop uses its own Twilio number).'
+    );
+  }
   const idToken = await getAuthBearer();
   let res;
   try {
@@ -54,7 +55,7 @@ export async function sendStatusSms({ to, message }) {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${idToken}`,
       },
-      body: JSON.stringify({ to, message }),
+      body: JSON.stringify({ to, message, companyId }),
     });
   } catch (err) {
     throw new Error(

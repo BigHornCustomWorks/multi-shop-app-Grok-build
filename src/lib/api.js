@@ -30,6 +30,8 @@ import {
 } from './constants';
 import { MAX_IMAGE_BYTES, PLATFORM_ADMIN_EMAIL } from '../config';
 import { compressPhotoFile, compressLogoFile } from './compressImage';
+import { emptyTwilioShopFields } from './twilioShop';
+import { releaseTwilioNumber } from './twilioClient';
 
 function db() {
   return getFirebase().db;
@@ -245,6 +247,8 @@ export async function createCompany({ name, primaryColor, contactEmail, plan }) 
     features: defaultCompanyFeatures(),
     allowSelfServeSettings: false,
     active: true,
+    // Multi-tenant Twilio — provision after create (or manual assign)
+    ...emptyTwilioShopFields(),
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -276,13 +280,33 @@ export async function setCompanyActive(companyId, active) {
 
 /**
  * Permanently remove a shop from Master Control.
+ * - Releases Twilio number (API) so dead shops don’t keep billing
  * - Unlinks all users (companyId → null)
- * - Removes invite code index
+ * - Removes invite code index + smsNumbers reverse index (via release API)
  * - Deletes company document
  * Note: job/photo files under the company may remain in Storage until cleaned separately.
  */
-export async function deleteCompany(companyId, inviteCode) {
+export async function deleteCompany(companyId, inviteCode, { forceRelease = false } = {}) {
   if (!companyId) throw new Error('Missing company id');
+
+  // Release Twilio number first (paid inventory) before wiping the shop
+  let releaseResult = null;
+  try {
+    releaseResult = await releaseTwilioNumber({
+      companyId,
+      force: forceRelease,
+    });
+  } catch (err) {
+    // If shop had no number, API still returns ok; real failures should block delete
+    // unless caller forces.
+    if (!forceRelease) {
+      throw new Error(
+        `Could not release Twilio number before delete: ${err.message || err}. ` +
+          'Fix the number in Master Control (Release) or delete with force after confirming Twilio Console.'
+      );
+    }
+    console.warn('deleteCompany: release failed, force continuing', err);
+  }
 
   const users = await listCompanyUsers(companyId);
   await Promise.all(
@@ -311,7 +335,7 @@ export async function deleteCompany(companyId, inviteCode) {
   }
 
   await deleteDoc(doc(db(), 'companies', companyId));
-  return { unlinkedUsers: users.length };
+  return { unlinkedUsers: users.length, release: releaseResult };
 }
 
 /** Ensure inviteCodes/{CODE} points at this company (platform admin). */

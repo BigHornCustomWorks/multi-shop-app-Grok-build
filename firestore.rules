@@ -97,6 +97,16 @@ service cloud.firestore {
       allow create, update, delete: if isPlatformAdmin();
     }
 
+    /**
+     * Reverse index: E.164 → companyId for inbound SMS (Phase D).
+     * Written by provision/release APIs as platform_admin.
+     * Shop staff do not need direct access.
+     */
+    match /smsNumbers/{numberId} {
+      allow read: if isPlatformAdmin();
+      allow create, update, delete: if isPlatformAdmin();
+    }
+
     match /companies/{companyId} {
       allow read, list: if signedIn() && accountActive();
 

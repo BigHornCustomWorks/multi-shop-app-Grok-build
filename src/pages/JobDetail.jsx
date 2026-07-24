@@ -284,7 +284,11 @@ export default function JobDetail({ job, onBack }) {
     setSmsBusy(true);
     setSmsMsg('');
     try {
-      const result = await sendStatusSms({ to: phone, message });
+      const result = await sendStatusSms({
+        to: phone,
+        message,
+        companyId: company?.id,
+      });
       appendSmsLog({
         at: Date.now(),
         status,
@@ -411,7 +415,11 @@ export default function JobDetail({ job, onBack }) {
             status: newStatus,
             shopPhone,
           });
-          const result = await sendStatusSms({ to: next.customerPhone, message });
+          const result = await sendStatusSms({
+            to: next.customerPhone,
+            message,
+            companyId: company?.id,
+          });
           next = {
             ...next,
             smsLog: [
