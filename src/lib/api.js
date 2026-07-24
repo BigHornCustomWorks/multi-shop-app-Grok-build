@@ -31,7 +31,7 @@ import {
 import { MAX_IMAGE_BYTES, PLATFORM_ADMIN_EMAIL } from '../config';
 import { compressPhotoFile, compressLogoFile } from './compressImage';
 import { emptyTwilioShopFields } from './twilioShop';
-import { releaseTwilioNumber } from './twilioClient';
+import { releaseTwilioNumber, getAuthBearer, parseApiResponse } from './twilioClient';
 
 function db() {
   return getFirebase().db;
@@ -52,20 +52,22 @@ export async function getUserProfile(uid) {
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
 
+/**
+ * Ensure a users/{uid} profile exists.
+ * Self-create may only set harmless fields (rules block role / companyId / active).
+ * Platform admin role is NEVER granted client-side — it must already exist on the
+ * Firestore doc (set historically or via Console / Admin SDK).
+ */
 export async function ensureUserProfile(user) {
   const refDoc = doc(db(), 'users', user.uid);
   const snap = await getDoc(refDoc);
   const email = (user.email || '').toLowerCase();
-  const isPlatform = isPlatformAdminEmail(email);
 
   if (!snap.exists()) {
     const profile = {
       email,
       displayName: user.displayName || '',
-      companyId: null,
-      role: isPlatform ? ROLES.PLATFORM_ADMIN : null,
       jobFilter: 'all',
-      active: true,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -73,18 +75,7 @@ export async function ensureUserProfile(user) {
     return { id: user.uid, ...profile };
   }
 
-  const data = snap.data();
-  // Keep platform admin role if email matches (never auto-reactivate a disabled admin)
-  if (isPlatform && data.role !== ROLES.PLATFORM_ADMIN) {
-    await setDoc(
-      refDoc,
-      { role: ROLES.PLATFORM_ADMIN, email, updatedAt: Date.now() },
-      { merge: true }
-    );
-    return { id: user.uid, ...data, role: ROLES.PLATFORM_ADMIN, email };
-  }
-
-  return { id: user.uid, ...data };
+  return { id: user.uid, ...snap.data() };
 }
 
 /** True unless explicitly deactivated (missing active = allowed). */
@@ -115,6 +106,10 @@ export async function listCompanyUsers(companyId) {
     );
 }
 
+/**
+ * @deprecated Prefer joinShopViaApi for self-join (clients cannot set companyId/role).
+ * Still used only if a platform-admin context writes via rules — prefer Admin paths.
+ */
 export async function setUserCompany({ uid, companyId, role, displayName, email }) {
   await setDoc(
     doc(db(), 'users', uid),
@@ -128,6 +123,32 @@ export async function setUserCompany({ uid, companyId, role, displayName, email 
     },
     { merge: true }
   );
+}
+
+/**
+ * Server join: POST /api/join-shop (Admin SDK sets companyId + role=tech).
+ */
+export async function joinShopViaApi({ code, displayName }) {
+  const idToken = await getAuthBearer();
+  let res;
+  try {
+    res = await fetch('/api/join-shop', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({
+        code: String(code || '').trim().toUpperCase(),
+        displayName: displayName || '',
+      }),
+    });
+  } catch (err) {
+    throw new Error(
+      `Could not reach join API (${err.message || 'network'}). Use the live Vercel URL and check your connection.`
+    );
+  }
+  return parseApiResponse(res, 'Join shop');
 }
 
 /**
@@ -349,46 +370,15 @@ export async function ensureInviteCodeIndex(company) {
   );
 }
 
-export async function findCompanyByInviteCode(code) {
-  const normalized = code.trim().toUpperCase();
-  if (!normalized) return null;
-
-  // 1) Preferred: direct document get (works with simple security rules)
-  try {
-    const invSnap = await getDoc(doc(db(), 'inviteCodes', normalized));
-    if (invSnap.exists()) {
-      const companyId = invSnap.data()?.companyId;
-      if (companyId) {
-        const companySnap = await getDoc(doc(db(), 'companies', companyId));
-        if (companySnap.exists()) {
-          return { id: companySnap.id, ...companySnap.data() };
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('inviteCodes lookup failed, trying companies query', e);
-  }
-
-  // 2) Fallback: query companies (needs list permission)
-  const q = query(
-    collection(db(), 'companies'),
-    where('inviteCode', '==', normalized),
-    limit(1)
+/**
+ * Client-side company lookup by invite code was removed.
+ * Join uses /api/join-shop (server-side) so companies stay non-enumerable.
+ * @deprecated
+ */
+export async function findCompanyByInviteCode() {
+  throw new Error(
+    'findCompanyByInviteCode is disabled. Use joinShopViaApi (POST /api/join-shop).'
   );
-  const snap = await getDocs(q);
-  if (snap.empty) return null;
-  const d = snap.docs[0];
-  // Best-effort: write index for next time (may fail if not platform admin — ignore)
-  try {
-    await setDoc(
-      doc(db(), 'inviteCodes', normalized),
-      { companyId: d.id, updatedAt: Date.now() },
-      { merge: true }
-    );
-  } catch {
-    /* ignore */
-  }
-  return { id: d.id, ...d.data() };
 }
 
 export async function uploadCompanyLogo(companyId, file) {

@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { Building2, Loader2, LogOut, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { findCompanyByInviteCode, setUserCompany } from '../lib/api';
-import { ROLES } from '../lib/constants';
+import { joinShopViaApi } from '../lib/api';
 import { APP_NAME } from '../config';
 
 /**
  * For shop staff who signed up but are not yet linked to a company.
  * Platform admin never sees this — they go to Master Control.
+ * Join is server-side only (companyId/role cannot be self-written).
  */
 export default function JoinShop() {
   const { user, profile, logout } = useAuth();
@@ -21,36 +21,26 @@ export default function JoinShop() {
     setBusy(true);
     setError('');
     try {
-      const company = await findCompanyByInviteCode(code);
-      if (!company) {
-        setError('No shop found with that code. Ask your admin for the invite code.');
-        setBusy(false);
-        return;
-      }
-      if (company.active === false) {
-        setError('That shop is inactive. Contact the platform admin.');
-        setBusy(false);
-        return;
-      }
-
-      await setUserCompany({
-        uid: user.uid,
-        companyId: company.id,
-        role: ROLES.TECH,
+      const result = await joinShopViaApi({
+        code,
         displayName: displayName.trim(),
-        email: user.email,
       });
-
+      // Full reload so AuthContext re-subscribes company with new companyId
       window.location.reload();
+      return result;
     } catch (err) {
       console.error('Join shop failed', err);
-      const code = err?.code || '';
-      if (code === 'permission-denied' || /insufficient permissions|permission/i.test(err?.message || '')) {
+      const msg = err?.message || 'Could not join shop';
+      if (/FIREBASE_SERVICE_ACCOUNT|service account/i.test(msg)) {
         setError(
-          'Still blocked by Firestore rules. Open Firebase Console → the SAME project as this app → Firestore → Rules → paste firestore.rules → Publish. Then open Master Control once (to index invite codes) and try again.'
+          'Join is not configured on the server yet. Platform owner: set FIREBASE_SERVICE_ACCOUNT_JSON on Vercel and Redeploy.'
+        );
+      } else if (/permission|insufficient/i.test(msg)) {
+        setError(
+          'Permission error. Publish the latest firestore.rules in Firebase Console, then try again.'
         );
       } else {
-        setError(err.message || 'Could not join shop');
+        setError(msg);
       }
     } finally {
       setBusy(false);

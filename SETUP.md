@@ -188,7 +188,7 @@ service cloud.firestore {
 
 **Publish** after pasting. Deactivated users cannot use shop data.
 
-**Note:** First login as platform admin sets `role: platform_admin` when the email matches `bighorncustomworks@gmail.com`.
+**Platform admin role:** Rules read `users/{uid}.role == 'platform_admin'` from Firestore (not custom claims, not email). The client **never** grants this role. Your existing admin doc must already have `role: "platform_admin"`. If you ever lose it, set that field in Firebase Console → Firestore → `users` → your uid. New staff join via `/api/join-shop` (requires `FIREBASE_SERVICE_ACCOUNT_JSON` on Vercel).
 
 ### Storage (`Storage ? Rules`)
 

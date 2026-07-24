@@ -57,6 +57,32 @@ service cloud.firestore {
     }
 
     /**
+     * Self-service profile fields only. Privileged fields (role, companyId, active)
+     * are NEVER client-writable on self — set by platform admin, shop owner (limited),
+     * or trusted server (join-shop).
+     */
+    function selfProfileCreateKeys() {
+      return request.resource.data.keys()
+        .hasOnly(['email', 'displayName', 'jobFilter', 'createdAt', 'updatedAt']);
+    }
+
+    function selfProfileUpdateKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['email', 'displayName', 'jobFilter', 'updatedAt']);
+    }
+
+    /**
+     * Belt-and-suspenders: even if a key sneaks into the write shape, privileged
+     * fields must match the existing doc (create has no prior privileged values —
+     * create is blocked from including them via hasOnly).
+     */
+    function privilegedFieldsUnchanged() {
+      return request.resource.data.get('role', null) == resource.data.get('role', null)
+        && request.resource.data.get('companyId', null) == resource.data.get('companyId', null)
+        && request.resource.data.get('active', null) == resource.data.get('active', null);
+    }
+
+    /**
      * Owner may manage staff in their shop only:
      * - target is same company (or being removed)
      * - cannot touch platform_admin or other Owners
@@ -68,30 +94,54 @@ service cloud.firestore {
         && resource.data.get('role', '') != 'shop_admin'
         && resource.data.get('companyId', '') == userDoc().companyId
         && (
-          // Still in shop, or unlinked
+          // Stay in shop, or unlink (companyId cleared)
           request.resource.data.get('companyId', '') == userDoc().companyId
           || request.resource.data.get('companyId', null) == null
         )
         && (
-          // Role stays staff-level only
+          // Role stays staff-level, or cleared when unlinking
           !('role' in request.resource.data)
           || request.resource.data.role in ['tech', 'parts_manager']
+          || (
+            request.resource.data.get('companyId', null) == null
+            && request.resource.data.get('role', null) == null
+          )
         );
     }
 
     match /users/{userId} {
-      allow read, create, update: if signedIn() && request.auth.uid == userId && accountActive();
+      // Own profile create: harmless fields only — no role / companyId / active
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && accountActive()
+        && selfProfileCreateKeys();
+
+      // Own profile update: same allowlist; privileged fields must stay unchanged
+      allow update: if signedIn()
+        && request.auth.uid == userId
+        && accountActive()
+        && selfProfileUpdateKeys()
+        && privilegedFieldsUnchanged();
+
+      allow read: if signedIn() && request.auth.uid == userId && accountActive();
+
+      // Platform admin: full read/update of any user (including privileged fields)
       allow read, update: if isPlatformAdmin();
+
       // Shop members can see teammates (for tech assignment lists, not platform admins)
       allow read: if accountActive()
         && userExists()
         && resource.data.get('companyId', '') is string
         && resource.data.get('companyId', '') == userDoc().companyId
         && resource.data.get('role', '') != 'platform_admin';
+
+      // Shop owner manages staff (limited roles / same company)
       allow update: if shopOwnerManagingStaff();
     }
 
     match /inviteCodes/{code} {
+      // Still readable by signed-in users (code → companyId only; no Twilio secrets).
+      // Join flow uses server join-shop; client does not need this for company docs.
       allow get: if signedIn() && accountActive();
       allow list: if isPlatformAdmin();
       allow create, update, delete: if isPlatformAdmin();
@@ -100,7 +150,6 @@ service cloud.firestore {
     /**
      * Reverse index: E.164 → companyId for inbound SMS (Phase D).
      * Written by provision/release APIs as platform_admin.
-     * Shop staff do not need direct access.
      */
     match /smsNumbers/{numberId} {
       allow read: if isPlatformAdmin();
@@ -108,7 +157,10 @@ service cloud.firestore {
     }
 
     match /companies/{companyId} {
-      allow read, list: if signedIn() && accountActive();
+      // Own shop only (or platform admin). No cross-tenant company / Twilio leak.
+      allow get: if isPlatformAdmin()
+        || (signedIn() && accountActive() && userDoc().companyId == companyId);
+      allow list: if isPlatformAdmin();
 
       allow create, delete: if isPlatformAdmin();
       allow update: if isPlatformAdmin()
@@ -127,8 +179,9 @@ service cloud.firestore {
         allow read, list: if canUsePartRequests(companyId);
         allow create: if canUsePartRequests(companyId);
         allow update: if canUsePartRequests(companyId);
+        // Shop admin / parts manager must match path companyId (no cross-shop deletes)
         allow delete: if isPlatformAdmin()
-          || isShopAdmin()
+          || (isShopAdmin() && userDoc().companyId == companyId)
           || (isPartsManager() && userDoc().companyId == companyId);
       }
     }
