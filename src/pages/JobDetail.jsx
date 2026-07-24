@@ -1293,8 +1293,14 @@ export default function JobDetail({ job, onBack }) {
                   AI scan
                 </button>
               ) : (
-                <div className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-400 py-3.5 rounded-2xl font-bold text-[10px] uppercase flex items-center justify-center text-center px-2 border border-slate-200 dark:border-slate-700">
-                  AI scan upgrade off
+                <div
+                  className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 py-3 rounded-2xl font-bold text-[10px] uppercase flex flex-col items-center justify-center text-center px-2 border border-dashed border-slate-300 dark:border-slate-600 gap-0.5"
+                  title="Platform admin: Master Control → this shop → Shop features → AI document scan"
+                >
+                  <span>AI scan off</span>
+                  <span className="normal-case font-medium text-[9px] opacity-80 tracking-normal">
+                    Enable in Master Control → Features
+                  </span>
                 </div>
               )}
             </div>

@@ -237,8 +237,9 @@ export default function MasterControl() {
                       }`}
                     >
                       {isPaused ? 'Paused' : 'Active'}
-                      {c.features?.invoiceScanner ? ' · AI' : ''}
+                      {c.features?.invoiceScanner ? ' · AI scan' : ''}
                       {c.features?.customerStatusSms ? ' · SMS' : ''}
+                      {c.features?.customerStatusEmails ? ' · Email' : ''}
                     </div>
                   </div>
                 </button>
@@ -340,6 +341,43 @@ function ShopEditor({ company, onSaved, onDeleted }) {
 
   const activeSeats = countActiveSeats(Array.isArray(users) ? users : []);
   const overSeats = activeSeats > Number(seatLimit || 0);
+
+  /** Feature toggles save immediately so you don’t miss “Save shop settings”. */
+  const toggleFeature = async (key, nextValue) => {
+    const prev = {
+      invoiceScanner,
+      customerStatusEmails,
+      customerStatusSms,
+    };
+    const next = { ...prev, [key]: nextValue };
+    if (key === 'invoiceScanner') setInvoiceScanner(nextValue);
+    if (key === 'customerStatusEmails') setCustomerStatusEmails(nextValue);
+    if (key === 'customerStatusSms') setCustomerStatusSms(nextValue);
+
+    try {
+      await updateCompany(company.id, {
+        features: {
+          ...(company.features || {}),
+          ...next,
+        },
+      });
+      const labels = {
+        invoiceScanner: nextValue
+          ? 'AI scan (CCC estimate + parts list) enabled for this shop.'
+          : 'AI scan turned off for this shop.',
+        customerStatusSms: nextValue ? 'Customer SMS enabled.' : 'Customer SMS turned off.',
+        customerStatusEmails: nextValue
+          ? 'Customer status emails enabled.'
+          : 'Customer status emails turned off.',
+      };
+      onSaved(labels[key] || 'Feature updated.');
+    } catch (err) {
+      if (key === 'invoiceScanner') setInvoiceScanner(prev.invoiceScanner);
+      if (key === 'customerStatusEmails') setCustomerStatusEmails(prev.customerStatusEmails);
+      if (key === 'customerStatusSms') setCustomerStatusSms(prev.customerStatusSms);
+      onSaved(err.message || 'Could not update feature');
+    }
+  };
 
   const save = async () => {
     setBusy(true);
@@ -681,27 +719,60 @@ function ShopEditor({ company, onSaved, onDeleted }) {
               {overSeats ? ' — over limit (allowed)' : ''}
             </p>
           </div>
-          <div className="flex flex-col justify-end gap-2">
-            <ToggleRow
-              label="Customer status texts (SMS)"
-              on={customerStatusSms}
-              onToggle={() => setCustomerStatusSms((v) => !v)}
-            />
-            <p className="text-[10px] text-slate-400 leading-relaxed">
-              Each shop sends from its own Twilio number (see Twilio SMS number section). Message
-              still says “call [shop] at shop phone.” Outbound requires A2P = Registered. Platform
-              Twilio SID/token stay in Vercel env.
-            </p>
-            <ToggleRow
-              label="Customer status emails (Twilio)"
-              on={customerStatusEmails}
-              onToggle={() => setCustomerStatusEmails((v) => !v)}
-            />
-            <p className="text-[10px] text-slate-400 leading-relaxed">
-              From display name = shop name; Reply-To = shop email (replies go to the shop). Needs{' '}
-              <b>TWILIO_EMAIL_FROM</b> verified on your platform domain + shop email set below.
+        </div>
+
+        {/* Features / upgrades — prominent, saves immediately */}
+        <div className="mt-4 p-4 rounded-2xl border-2 border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-950/30 space-y-3">
+          <div>
+            <div className="section-title mb-1 flex items-center gap-2">
+              <Sparkles size={14} className="text-blue-600 dark:text-blue-400" />
+              Shop features (per shop)
+            </div>
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+              Toggle upgrades for this shop only. Changes <b>save immediately</b> (you do not need
+              “Save shop settings” for these). Staff see the tools on jobs after a refresh.
             </p>
           </div>
+
+          <ToggleRow
+            label="AI document scan (CCC estimate + parts list)"
+            on={invoiceScanner}
+            onToggle={() => toggleFeature('invoiceScanner', !invoiceScanner)}
+            icon={<Sparkles size={14} />}
+          />
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed -mt-1 px-1">
+            When on, jobs show <b>AI scan</b> on Info and Parts: scan CCC ONE Preliminary Estimate /
+            Estimate of Record, or CCC Parts List / vendor invoice. Needs{' '}
+            <b>XAI_API_KEY</b> (or VITE_XAI_API_KEY) on Vercel.
+            {invoiceScanner ? (
+              <span className="block mt-1 font-bold text-emerald-700 dark:text-emerald-300">
+                Currently ON — shop staff can scan on open jobs.
+              </span>
+            ) : (
+              <span className="block mt-1 font-bold text-amber-800 dark:text-amber-200">
+                Currently OFF — staff see “AI scan upgrade off” until you enable this.
+              </span>
+            )}
+          </p>
+
+          <ToggleRow
+            label="Customer status texts (SMS)"
+            on={customerStatusSms}
+            onToggle={() => toggleFeature('customerStatusSms', !customerStatusSms)}
+          />
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed -mt-1 px-1">
+            Each shop sends from its own Twilio number (section below). A2P must be Registered.
+          </p>
+
+          <ToggleRow
+            label="Customer status emails (Twilio)"
+            on={customerStatusEmails}
+            onToggle={() => toggleFeature('customerStatusEmails', !customerStatusEmails)}
+          />
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed -mt-1 px-1">
+            From display name = shop name; Reply-To = shop email. Needs <b>TWILIO_EMAIL_FROM</b> on
+            Vercel.
+          </p>
         </div>
 
         <div className="mt-4 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
@@ -977,19 +1048,13 @@ function ShopEditor({ company, onSaved, onDeleted }) {
 
           <div className="space-y-3">
             <p className="text-[10px] text-slate-400 leading-relaxed">
-              Pause / resume is under <b>Shop access</b> at the top (saves immediately). The toggle
-              below is kept in sync when you pause or save settings.
+              Pause / resume is under <b>Shop access</b> (saves immediately). AI scan / SMS / email
+              toggles are in <b>Shop features</b> above (also save immediately).
             </p>
             <ToggleRow
               label="Shop active (also in Shop access)"
               on={active}
               onToggle={() => setActive((v) => !v)}
-            />
-            <ToggleRow
-              label="AI invoice scanner (upgrade)"
-              on={invoiceScanner}
-              onToggle={() => setInvoiceScanner((v) => !v)}
-              icon={<Sparkles size={14} />}
             />
           </div>
         </div>
